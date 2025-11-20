@@ -218,7 +218,7 @@ class WaterNotificationReceiver : BroadcastReceiver() {
         val notification = NotificationCompat.Builder(context, "water_channel_id")
             .setSmallIcon(android.R.drawable.ic_menu_report_image)
             .setContentTitle("今日饮水不足")
-            .setContentText("今天只喝了 $current ml，还不到目标的 $percentage% 哦，加油补水！")
+            .setContentText("今天只喝了 $current mL，还不到目标的 $percentage% 哦，加油补水！")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
@@ -544,7 +544,7 @@ fun WaterTrackerApp(viewModel: WaterTrackerViewModel) {
                         )
                     } else {
                         Text(
-                            "/ ${viewModel.dailyGoal} ml",
+                            "/ ${viewModel.dailyGoal} mL",
                             style = MaterialTheme.typography.titleLarge
                         )
                     }
@@ -572,10 +572,16 @@ fun WaterTrackerApp(viewModel: WaterTrackerViewModel) {
                     title = { Text("重置今日数据") },
                     text = { Text("确定要将今日的饮水记录清零吗？此操作无法撤销。") },
                     confirmButton = {
-                        TextButton(onClick = {
-                            viewModel.resetDaily(context)
-                            showResetDialog = false
-                        }) { Text("重置") }
+                        TextButton(
+                            onClick = {
+                                viewModel.resetDaily(context)
+                                showResetDialog = false
+                            },
+                            // 【修改点】添加这一行，将按钮文字设为红色（使用主题的 Error 色）
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("重置")
+                        }
                     },
                     dismissButton = {
                         TextButton(onClick = { showResetDialog = false }) { Text("取消") }
@@ -663,11 +669,10 @@ fun EditPercentageDialog(
                     value = sliderPosition,
                     onValueChange = {
                         sliderPosition = it
-                        // 拖动时同步更新文字
+                        // 虽然滑条是连续的，但我们在这里实时取整更新文字，保持整数逻辑
                         textValue = it.roundToInt().toString()
                     },
-                    valueRange = 1f..99f,
-                    steps = 97 // (99-1)-1 = 97格
+                    valueRange = 1f..99f
                 )
             }
         },
@@ -707,8 +712,8 @@ fun SettingsContent(viewModel: WaterTrackerViewModel) {
     // 【新增】百分比弹窗状态
     var showPercentageDialog by remember { mutableStateOf(false) }
 
-    if (showGoalDialog) EditNumberDialog(title = "设定每日目标 (ml)", initialValue = viewModel.dailyGoal, onConfirm = { viewModel.updateDailyGoal(context, it); showGoalDialog = false }, onDismiss = { showGoalDialog = false })
-    if (showCapacityDialog) EditNumberDialog(title = "设定杯子容量 (ml)", initialValue = viewModel.cupCapacity, onConfirm = { viewModel.updateCupCapacity(context, it); showCapacityDialog = false }, onDismiss = { showCapacityDialog = false })
+    if (showGoalDialog) EditNumberDialog(title = "设定每日目标 (mL)", initialValue = viewModel.dailyGoal, onConfirm = { viewModel.updateDailyGoal(context, it); showGoalDialog = false }, onDismiss = { showGoalDialog = false })
+    if (showCapacityDialog) EditNumberDialog(title = "设定杯子容量 (mL)", initialValue = viewModel.cupCapacity, onConfirm = { viewModel.updateCupCapacity(context, it); showCapacityDialog = false }, onDismiss = { showCapacityDialog = false })
     if (showTimePicker) WaterTimePickerDialog(onDismiss = { showTimePicker = false }, onConfirm = { h, m -> viewModel.addReminder(context, String.format("%02d:%02d", h, m)); Toast.makeText(context, "设置成功", Toast.LENGTH_SHORT).show(); showTimePicker = false })
     if (showCheckTimePicker) WaterTimePickerDialog(onDismiss = { showCheckTimePicker = false }, onConfirm = { h, m -> viewModel.updateCheckTime(context, String.format("%02d:%02d", h, m)); Toast.makeText(context, "设置成功", Toast.LENGTH_SHORT).show(); showCheckTimePicker = false })
 
@@ -731,13 +736,13 @@ fun SettingsContent(viewModel: WaterTrackerViewModel) {
             Divider(Modifier.padding(top = 20.dp))
         }
         item {
-            SettingItem(title = "每日目标", value = "${viewModel.dailyGoal} ml", onValueClick = { showGoalDialog = true }) {
+            SettingItem(title = "每日目标", value = "${viewModel.dailyGoal} mL", onValueClick = { showGoalDialog = true }) {
                 Row { Button(onClick = { if (viewModel.dailyGoal > 500) viewModel.updateDailyGoal(context, viewModel.dailyGoal - 500) }) { Text("-500") }; Spacer(Modifier.width(8.dp)); Button(onClick = { viewModel.updateDailyGoal(context, viewModel.dailyGoal + 500) }) { Text("+500") } }
             }
             Divider(Modifier.padding(top = 16.dp))
         }
         item {
-            SettingItem(title = "杯子容量", value = "${viewModel.cupCapacity} ml", onValueClick = { showCapacityDialog = true }) {
+            SettingItem(title = "水杯容量", value = "${viewModel.cupCapacity} mL", onValueClick = { showCapacityDialog = true }) {
                 Row { Button(onClick = { if (viewModel.cupCapacity > 50) viewModel.updateCupCapacity(context, viewModel.cupCapacity - 50) }) { Text("-50") }; Spacer(Modifier.width(8.dp)); Button(onClick = { viewModel.updateCupCapacity(context, viewModel.cupCapacity + 50) }) { Text("+50") } }
             }
             Divider(Modifier.padding(top = 16.dp))
@@ -776,7 +781,7 @@ fun SettingsContent(viewModel: WaterTrackerViewModel) {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    "v1.1.0",
+                    "v1.1.1",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.outline
                 )
@@ -790,7 +795,7 @@ fun SettingsContent(viewModel: WaterTrackerViewModel) {
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
-                    "Ciallo～(∠・ω< )⌒☆",
+                    "Ciallo～(∠・ω< )⌒★",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.outline
                 )
