@@ -5,7 +5,9 @@
 ![Compose](https://img.shields.io/badge/Jetpack-Compose-blue.svg?style=flat&logo=jetpackcompose)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**Water Reminder** 是一款现代、极简且智能的 Android 饮水追踪应用。它采用最新的 Jetpack Compose 构建，拥有沉浸式的 UI 设计、流畅的交互动画以及高度可定制的提醒功能，旨在帮助用户养成健康的饮水习惯。（本项目完全由Gemini 3构建）
+**Water Reminder** 是一款现代、极简且智能的 Android 饮水追踪应用。它采用最新的 Jetpack Compose 构建，拥有沉浸式的 UI 设计、流畅的交互动画以及高度可定制的提醒功能，旨在帮助用户养成健康的饮水习惯。
+
+（本项目完全由Gemini 3构建，所以别提Issues，你看我注释都扔在代码里头没删）
 
 ## ✨ 主要功能 (Features)
 
