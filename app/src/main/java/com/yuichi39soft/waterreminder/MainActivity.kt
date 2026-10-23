@@ -38,10 +38,12 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -165,16 +167,25 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppTheme(themeMode: Int, content: @Composable () -> Unit) {
     val systemDark = isSystemInDarkTheme()
+    // 0 跟随系统，1 浅色，2 深色，3 深色（纯黑，OLED）
     val useDarkTheme = when (themeMode) {
         1 -> false
-        2 -> true
+        2, 3 -> true
         else -> systemDark
     }
+    val pureBlack = themeMode == 3
+    val context = LocalContext.current
+
     val colorScheme = when {
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (useDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            if (useDarkTheme) {
+                val dynamic = dynamicDarkColorScheme(context)
+                if (pureBlack) dynamic.asOledBlack() else dynamic
+            } else {
+                dynamicLightColorScheme(context)
+            }
         }
+        pureBlack -> darkColorScheme().asOledBlack()
         useDarkTheme -> darkColorScheme()
         else -> lightColorScheme()
     }
@@ -194,6 +205,30 @@ fun AppTheme(themeMode: Int, content: @Composable () -> Unit) {
 
     MaterialTheme(colorScheme = colorScheme, typography = AppTypography, content = content)
 }
+
+/**
+ * OLED 纯黑：把背景与各类容器色压到纯黑（#000000），
+ * 只保留稍亮的卡片层级和足够对比度的前景色，省电且不刺眼。
+ */
+private fun ColorScheme.asOledBlack(): ColorScheme = copy(
+    background = Color.Black,
+    surface = Color.Black,
+    surfaceDim = Color.Black,
+    surfaceBright = Color(0xFF1A1A1A),
+    surfaceContainerLowest = Color.Black,
+    surfaceContainerLow = Color.Black,
+    surfaceContainer = Color(0xFF060606),
+    surfaceContainerHigh = Color(0xFF141414),
+    surfaceContainerHighest = Color(0xFF1B1B1B),
+    surfaceVariant = Color(0xFF121212),
+    onBackground = Color(0xFFE8E8E8),
+    onSurface = Color(0xFFE8E8E8),
+    onSurfaceVariant = Color(0xFFAFAFAF),
+    outline = Color(0xFF525252),
+    outlineVariant = Color(0xFF2C2C2C),
+    inverseSurface = Color(0xFFE8E8E8),
+    inverseOnSurface = Color(0xFF151515)
+)
 
 private const val PREFS_NAME = "water_prefs"
 private const val KEY_REMINDERS = "reminders"
@@ -1045,7 +1080,7 @@ fun SettingsContent(viewModel: WaterTrackerViewModel) {
     LazyColumn(contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         item {
             Text("外观", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary); Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(0 to "跟随系统", 1 to "浅色", 2 to "深色").forEach { (mode, label) -> FilterChip(selected = viewModel.themeMode == mode, onClick = { viewModel.updateTheme(context, mode) }, shape = CircleShape, label = { Text(label) }, leadingIcon = if (viewModel.themeMode == mode) { { Icon(Icons.Default.Check, null) } } else null) } }
+            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(0 to "跟随系统", 1 to "浅色", 2 to "深色", 3 to "纯黑").forEach { (mode, label) -> FilterChip(selected = viewModel.themeMode == mode, onClick = { viewModel.updateTheme(context, mode) }, shape = CircleShape, label = { Text(label) }, leadingIcon = if (viewModel.themeMode == mode) { { Icon(Icons.Default.Check, null) } } else null) } }
             Divider(Modifier.padding(top = 20.dp))
         }
         item {

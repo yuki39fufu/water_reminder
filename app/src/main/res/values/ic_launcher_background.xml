@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#FCFBFA</color>
+    <!-- 自适应图标底色：深色，和蓝色水杯形成对比 -->
+    <color name="ic_launcher_background">#0E1218</color>
 </resources>
