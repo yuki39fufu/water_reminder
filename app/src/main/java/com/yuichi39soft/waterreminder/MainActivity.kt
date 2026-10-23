@@ -113,7 +113,7 @@ class MainActivity : ComponentActivity() {
                 viewModel.loadSettings(context)
             }
 
-            AppTheme(themeMode = viewModel.themeMode) {
+            AppTheme(themeMode = viewModel.themeMode, oledBlack = viewModel.oledBlack) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -165,15 +165,16 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppTheme(themeMode: Int, content: @Composable () -> Unit) {
+fun AppTheme(themeMode: Int, oledBlack: Boolean, content: @Composable () -> Unit) {
     val systemDark = isSystemInDarkTheme()
-    // 0 跟随系统，1 浅色，2 深色，3 深色（纯黑，OLED）
+    // 0 跟随系统，1 浅色，2 暗色
     val useDarkTheme = when (themeMode) {
         1 -> false
-        2, 3 -> true
+        2 -> true
         else -> systemDark
     }
-    val pureBlack = themeMode == 3
+    // 纯黑只在暗色生效时才有意义
+    val pureBlack = useDarkTheme && oledBlack
     val context = LocalContext.current
 
     val colorScheme = when {
@@ -236,6 +237,7 @@ private const val KEY_NOTIFICATION_ASKED = "notification_asked"
 private const val KEY_BATTERY_ASKED = "battery_asked"
 private const val KEY_MANUAL_GOAL = "manual_goal_enabled"
 private const val KEY_WEIGHT_KG = "weight_kg"
+private const val KEY_OLED_BLACK = "oled_black"
 
 private const val CHANNEL_REMINDER = "water_reminder_v2"
 private const val CHANNEL_STATUS = "water_status_v2"
@@ -573,6 +575,8 @@ class WaterTrackerViewModel {
     var dailyGoal by mutableIntStateOf(2000)
     var cupCapacity by mutableIntStateOf(300)
     var themeMode by mutableIntStateOf(0)
+    // 暗色模式下是否使用纯黑（OLED）
+    var oledBlack by mutableStateOf(false)
     var checkTime by mutableStateOf("20:00")
     var checkPercentage by mutableIntStateOf(50)
     var showCelebration by mutableStateOf(false)
@@ -611,6 +615,13 @@ class WaterTrackerViewModel {
         dailyGoal = p.getInt("daily_goal", 2000)
         cupCapacity = p.getInt("cup_capacity", 300)
         themeMode = p.getInt("theme_mode", 0)
+        oledBlack = p.getBoolean(KEY_OLED_BLACK, false)
+        // 旧版本用 themeMode=3 表示纯黑，迁移为「暗色 + 纯黑开关」
+        if (themeMode == 3) {
+            themeMode = 2
+            oledBlack = true
+            p.edit().putInt("theme_mode", 2).putBoolean(KEY_OLED_BLACK, true).apply()
+        }
         checkTime = p.getString("check_time", "20:00") ?: "20:00"
         checkPercentage = p.getInt("check_percentage", 50)
 
@@ -648,6 +659,11 @@ class WaterTrackerViewModel {
     fun updateTheme(context: Context, mode: Int) {
         themeMode = mode
         context.getSharedPreferences("water_prefs", Context.MODE_PRIVATE).edit().putInt("theme_mode", mode).apply()
+    }
+
+    fun updateOledBlack(context: Context, enabled: Boolean) {
+        oledBlack = enabled
+        prefs(context).edit().putBoolean(KEY_OLED_BLACK, enabled).apply()
     }
 
     fun updateCheckTime(context: Context, time: String) {
@@ -1080,7 +1096,22 @@ fun SettingsContent(viewModel: WaterTrackerViewModel) {
     LazyColumn(contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         item {
             Text("外观", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary); Spacer(Modifier.height(8.dp))
-            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(0 to "系统", 1 to "浅色", 2 to "深色", 3 to "纯黑").forEach { (mode, label) -> FilterChip(selected = viewModel.themeMode == mode, onClick = { viewModel.updateTheme(context, mode) }, shape = CircleShape, label = { Text(label) }, leadingIcon = if (viewModel.themeMode == mode) { { Icon(Icons.Default.Check, null) } } else null) } }
+            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(0 to "跟随系统", 1 to "浅色", 2 to "暗色").forEach { (mode, label) -> FilterChip(selected = viewModel.themeMode == mode, onClick = { viewModel.updateTheme(context, mode) }, shape = CircleShape, label = { Text(label) }, leadingIcon = if (viewModel.themeMode == mode) { { Icon(Icons.Default.Check, null) } } else null) } }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
+            ) {
+                Text(
+                    "暗色模式使用纯黑",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                Spacer(Modifier.weight(1f))
+                Switch(
+                    checked = viewModel.oledBlack,
+                    onCheckedChange = { viewModel.updateOledBlack(context, it) }
+                )
+            }
             Divider(Modifier.padding(top = 20.dp))
         }
         item {
