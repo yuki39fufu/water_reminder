@@ -954,13 +954,17 @@ fun WaterTrackerApp(viewModel: WaterTrackerViewModel) {
 fun TrapezoidCup(cupCapacity: Int, onDrinkConfirmed: (Int) -> Unit) {
     var waterLevel by remember { mutableFloatStateOf(0f) }
     var currentVolume by remember { mutableIntStateOf(0) }
+    // pointerInput(Unit) 的手势闭包只会创建一次，必须用 State 读最新值，
+    // 否则在设置里改了杯子容量后，拖动仍按旧容量换算，永远对不上
+    val capacityState = rememberUpdatedState(cupCapacity)
+    val confirmState = rememberUpdatedState(onDrinkConfirmed)
     val waterColor = Color(0xFF9AFCFF)
     val outlineColor = MaterialTheme.colorScheme.outline
     val containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     Box(
         modifier = Modifier.size(220.dp, 340.dp).pointerInput(Unit) {
-            detectVerticalDragGestures(onDragEnd = { if (currentVolume > 0) { onDrinkConfirmed(currentVolume); waterLevel = 0f; currentVolume = 0 } }) { change, _ ->
-                change.consume(); val newLevel = (1f - (change.position.y / size.height)).coerceIn(0f, 1f); waterLevel = newLevel; currentVolume = (newLevel * cupCapacity).roundToInt()
+            detectVerticalDragGestures(onDragEnd = { if (currentVolume > 0) { confirmState.value(currentVolume); waterLevel = 0f; currentVolume = 0 } }) { change, _ ->
+                change.consume(); val newLevel = (1f - (change.position.y / size.height)).coerceIn(0f, 1f); waterLevel = newLevel; currentVolume = (newLevel * capacityState.value).roundToInt()
             }
         }, contentAlignment = Alignment.BottomCenter
     ) {
