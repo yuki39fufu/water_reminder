@@ -5,9 +5,9 @@
 ![Compose](https://img.shields.io/badge/Jetpack-Compose-blue.svg?style=flat&logo=jetpackcompose)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**Water Reminder** 是一款现代、极简且智能的 Android 饮水追踪应用。它采用最新的 Jetpack Compose 构建，拥有沉浸式的 UI 设计、流畅的交互动画以及高度可定制的提醒功能，旨在帮助用户养成健康的饮水习惯。
+**Water Reminder** 是一款现代、极简且智能的 Android 饮水追踪应用。采用最新的 Jetpack Compose 构建，拥有沉浸式的 UI 设计、流畅的交互动画以及高度可定制的提醒功能，旨在帮助用户养成健康的饮水习惯。
 
-（本项目完全由Gemini 3构建，所以别提Issue，你看我注释都扔在代码里头没删）
+（本项目完全由Deepseek 与Gemini构建，所以别提Issue，你看我注释都扔在代码里头没删）
 
 ## ✨ 主要功能 (Features)
 
@@ -52,7 +52,7 @@
 ## 📥 安装与构建 (Installation)
 
 ### 直接安装
-请前往 [Releases](../../releases) 页面下载最新版本的 APK 文件 (`v1.1.1`)。
+请前往 [Releases](../../releases) 页面下载最新版本的 APK 文件。
 
 ### 源码构建
 1.  克隆仓库：
@@ -64,28 +64,11 @@
 4.  连接 Android 设备或启动模拟器。
 5.  点击运行 (Run) 按钮。
 
-**注意**: 如果在 Android 12+ 设备上运行，请确保授予应用“设置闹钟和提醒”的权限，以保证提醒功能的准确性。
-
-## 📝 版本历史 (Changelog)
-
-* **v1.1.1**
-    * 更多细节。
-    * 全新图标。
-* **v1.1.0**
-    * 新增：每日目标达成时的烟花庆祝特效。
-    * 新增：晚间达标检查功能的百分比阈值可自定义（滑条+输入框）。
-    * 优化：通知机制降级为标准通知，不再显示状态栏闹钟图标。
-    * 优化：修复深色模式下状态栏字体颜色问题。
-    * 优化：设置页 UI 调整，增加版本信息页脚。
-* **v1.0.0**
-    * 初始版本发布。
-    * 基础饮水记录、梯形杯子交互、定时提醒功能。
-
 ## 👤 作者 (Author)
 
-**Water Reminder** developed with ❤️ by **yuki30fufu**.
+**Water Reminder** developed with ❤️ by **yuki39fufu**.
 
-*Powered by Gemini* （AI真是太好用了家人们）
+*Powered by Deepseek & Gemini* （AI真是太好用了家人们）
 
 ## 📄 许可证 (License)
 
