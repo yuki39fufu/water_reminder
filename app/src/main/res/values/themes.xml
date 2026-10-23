@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.WaterReminder" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- 平台层（非 Compose）控件也用同一套字体，避免回退到系统默认字体 -->
+    <style name="Theme.WaterReminder" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">@font/google_sans_code</item>
+    </style>
 </resources>

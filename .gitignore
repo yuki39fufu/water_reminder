@@ -13,3 +13,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Release 签名配置，禁止入库
+keystore.properties
+*.jks
+*.keystore
