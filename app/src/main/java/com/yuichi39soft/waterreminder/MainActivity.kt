@@ -1080,7 +1080,7 @@ fun SettingsContent(viewModel: WaterTrackerViewModel) {
     LazyColumn(contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         item {
             Text("外观", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary); Spacer(Modifier.height(8.dp))
-            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(0 to "跟随系统", 1 to "浅色", 2 to "深色", 3 to "纯黑").forEach { (mode, label) -> FilterChip(selected = viewModel.themeMode == mode, onClick = { viewModel.updateTheme(context, mode) }, shape = CircleShape, label = { Text(label) }, leadingIcon = if (viewModel.themeMode == mode) { { Icon(Icons.Default.Check, null) } } else null) } }
+            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(0 to "系统", 1 to "浅色", 2 to "深色", 3 to "纯黑").forEach { (mode, label) -> FilterChip(selected = viewModel.themeMode == mode, onClick = { viewModel.updateTheme(context, mode) }, shape = CircleShape, label = { Text(label) }, leadingIcon = if (viewModel.themeMode == mode) { { Icon(Icons.Default.Check, null) } } else null) } }
             Divider(Modifier.padding(top = 20.dp))
         }
         item {
