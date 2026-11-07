@@ -21,12 +21,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -227,11 +233,51 @@ private fun ClockDial(
             // 内圈 1-12
             onHour(if (index == 0) 12 else index)
         } else {
-            // 外圈 13-24（24 记作 0）
-            val v = 13 + index
-            onHour(if (v == 24) 0 else v)
+            // 外圈：0 点在 12 点方向，其余 13..23
+            onHour(if (index == 0) 0 else 12 + index)
         }
     }
+
+    // 指针角度动画（走最短方向，避免转一大圈）
+    val targetAngle = if (selectingHour) {
+        when {
+            hour in 1..12 -> ((hour % 12) * 30).toFloat()
+            hour == 0 -> 0f
+            else -> ((hour - 12) * 30).toFloat()
+        }
+    } else {
+        (minute * 6).toFloat()
+    }
+    var animatedAngle by remember { mutableFloatStateOf(targetAngle) }
+    LaunchedEffect(targetAngle, selectingHour) {
+        val start = animatedAngle
+        val delta = ((targetAngle - start + 540f) % 360f) - 180f
+        animate(0f, 1f, animationSpec = tween(260, easing = FastOutSlowInEasing)) { fraction, _ ->
+            animatedAngle = start + delta * fraction
+        }
+    }
+    // 指针半径：小时在内圈，分钟在外圈
+    val targetRadiusFactor = when {
+        !selectingHour -> 0.78f
+        hour in 1..12 -> 0.56f
+        else -> 0.84f
+    }
+    val selectorRadiusFactor by animateFloatAsState(
+        targetValue = targetRadiusFactor,
+        animationSpec = tween(260, easing = FastOutSlowInEasing),
+        label = "selector-radius"
+    )
+    // 两套数字交叉淡入淡出
+    val hourNumbersAlpha by animateFloatAsState(
+        targetValue = if (selectingHour) 1f else 0f,
+        animationSpec = tween(200),
+        label = "hour-numbers"
+    )
+    val minuteNumbersAlpha by animateFloatAsState(
+        targetValue = if (selectingHour) 0f else 1f,
+        animationSpec = tween(200),
+        label = "minute-numbers"
+    )
 
     Canvas(
         modifier = modifier
@@ -251,38 +297,37 @@ private fun ClockDial(
         drawCircle(color = dialColor, radius = radius, center = Offset(cx, cy))
 
 
-        if (selectingHour) {
+        if (hourNumbersAlpha > 0.01f) {
+            val color = numberColor.copy(alpha = hourNumbersAlpha)
             // 内圈 1-12
             for (v in 1..12) {
                 val angle = Math.toRadians((-90.0 + (v % 12) * 30.0))
                 val r = radius * 0.56f
                 val pos = Offset(cx + r * cos(angle).toFloat(), cy + r * sin(angle).toFloat())
-                drawNumber(measurer, v.toString(), pos, textStyle, numberColor)
+                drawNumber(measurer, v.toString(), pos, textStyle, color)
             }
-            // 外圈 13-23,0
+            // 外圈：00 在 12 点方向，13..23 顺时针依次排开
             for (i in 0..11) {
-                val v = if (i == 11) 0 else 13 + i
+                val v = if (i == 0) 0 else 12 + i
                 val angle = Math.toRadians((-90.0 + i * 30.0))
                 val r = radius * 0.84f
                 val pos = Offset(cx + r * cos(angle).toFloat(), cy + r * sin(angle).toFloat())
-                drawNumber(measurer, if (v < 10) "0$v" else v.toString(), pos, textStyle, numberColor)
+                drawNumber(measurer, if (v < 10) "0$v" else v.toString(), pos, textStyle, color)
             }
-        } else {
+        }
+        if (minuteNumbersAlpha > 0.01f) {
+            val color = numberColor.copy(alpha = minuteNumbersAlpha)
             for (i in 0..11) {
                 val angle = Math.toRadians((-90.0 + i * 30.0))
                 val r = radius * 0.78f
                 val pos = Offset(cx + r * cos(angle).toFloat(), cy + r * sin(angle).toFloat())
-                drawNumber(measurer, String.format("%02d", i * 5), pos, textStyle, numberColor)
+                drawNumber(measurer, String.format("%02d", i * 5), pos, textStyle, color)
             }
         }
 
         // 选中位置：圆点 + 指针
-        val angle = if (selectingHour) {
-            Math.toRadians((-90.0 + (hour % 12) * 30.0))
-        } else {
-            Math.toRadians((-90.0 + (minute / 5) * 30.0))
-        }
-        val selR = if (selectingHour) radius * 0.56f else radius * 0.78f
+        val angle = Math.toRadians((-90.0 + animatedAngle).toDouble())
+        val selR = radius * selectorRadiusFactor
         val selPos = Offset(cx + selR * cos(angle).toFloat(), cy + selR * sin(angle).toFloat())
         drawLine(
             color = selectorColor,
