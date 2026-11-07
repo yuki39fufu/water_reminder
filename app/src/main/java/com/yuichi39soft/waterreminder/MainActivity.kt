@@ -37,11 +37,15 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -56,6 +60,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -86,6 +91,7 @@ import androidx.core.app.RemoteInput
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.util.Calendar
 import kotlin.math.cos
@@ -96,6 +102,7 @@ import com.yuichi39soft.waterreminder.ui.theme.AppTypography
 
 class MainActivity : ComponentActivity() {
     private lateinit var viewModel: WaterTrackerViewModel
+    private lateinit var pomodoro: PomodoroViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -105,6 +112,7 @@ class MainActivity : ComponentActivity() {
 
         createNotificationChannel()
         viewModel = WaterTrackerViewModel()
+        pomodoro = PomodoroViewModel(this)
 
         setContent {
             val context = LocalContext.current
@@ -118,7 +126,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    WaterTrackerApp(viewModel)
+                    WaterTrackerApp(viewModel, pomodoro)
                 }
             }
         }
@@ -160,6 +168,20 @@ class MainActivity : ComponentActivity() {
                 description = "设置成功提示"
             }
             notificationManager.createNotificationChannel(silentChannel)
+
+            val pomodoroChannel = NotificationChannel(CHANNEL_POMODORO, "番茄钟", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "专注 / 休息阶段结束提醒"
+                enableVibration(true)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                setSound(
+                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+            }
+            notificationManager.createNotificationChannel(pomodoroChannel)
         }
     }
 }
@@ -231,21 +253,35 @@ private fun ColorScheme.asOledBlack(): ColorScheme = copy(
     inverseOnSurface = Color(0xFF151515)
 )
 
-private const val PREFS_NAME = "water_prefs"
-private const val KEY_REMINDERS = "reminders"
-private const val KEY_NOTIFICATION_ASKED = "notification_asked"
-private const val KEY_BATTERY_ASKED = "battery_asked"
-private const val KEY_MANUAL_GOAL = "manual_goal_enabled"
-private const val KEY_WEIGHT_KG = "weight_kg"
-private const val KEY_OLED_BLACK = "oled_black"
+internal const val PREFS_NAME = "water_prefs"
+internal const val KEY_REMINDERS = "reminders"
+internal const val KEY_NOTIFICATION_ASKED = "notification_asked"
+internal const val KEY_BATTERY_ASKED = "battery_asked"
+internal const val KEY_MANUAL_GOAL = "manual_goal_enabled"
+internal const val KEY_WEIGHT_KG = "weight_kg"
+internal const val KEY_OLED_BLACK = "oled_black"
+internal const val KEY_POM_FOCUS = "pomodoro_focus"
+internal const val KEY_POM_BREAK = "pomodoro_break"
+internal const val KEY_POM_ROUNDS = "pomodoro_rounds"
+internal const val KEY_POM_RING = "pomodoro_ring"
 
-private const val CHANNEL_REMINDER = "water_reminder_v2"
-private const val CHANNEL_STATUS = "water_status_v2"
+internal const val CHANNEL_REMINDER = "water_reminder_v2"
+internal const val CHANNEL_STATUS = "water_status_v2"
+internal const val CHANNEL_POMODORO = "pomodoro_v1"
 
-private const val DEFAULT_WEIGHT_KG = 65
-private const val GITHUB_URL = "https://github.com/yuki39fufu/water_reminder"
+internal const val DEFAULT_WEIGHT_KG = 65
+internal const val GITHUB_URL = "https://github.com/yuki39fufu/water_reminder"
 
-private val DEFAULT_REMINDERS = listOf("09:00", "11:00", "14:00", "16:00")
+internal val DEFAULT_REMINDERS = listOf("09:00", "11:00", "14:00", "16:00")
+
+/** 底部小白条循环切换的功能页 */
+enum class AppScreen { WATER, POMODORO }
+
+/** 以后要加第 3、4 个功能，只往这里塞即可，切换会自动循环 */
+private val APP_SCREENS = listOf(AppScreen.WATER, AppScreen.POMODORO)
+
+/** 从中间开始，前后都能无限滑 */
+private const val INITIAL_PAGE = (Int.MAX_VALUE / 2) - 1
 
 /** 建议饮水量 = 体重(kg) × 35 - 1000，下限 500 mL，避免体重过小算出离谱的值 */
 fun suggestedIntake(weightKg: Int): Int = (weightKg * 35 - 1000).coerceIn(500, 6000)
@@ -305,7 +341,7 @@ fun openAppNotificationSettings(context: Context) {
     startSystemScreen(context, intent)
 }
 
-private fun startSystemScreen(context: Context, intent: Intent): Boolean {
+internal fun startSystemScreen(context: Context, intent: Intent): Boolean {
     return try {
         if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
@@ -782,7 +818,7 @@ data class Particle(val color: Color, val angle: Double, val speed: Double)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WaterTrackerApp(viewModel: WaterTrackerViewModel) {
+fun WaterTrackerApp(viewModel: WaterTrackerViewModel, pomodoro: PomodoroViewModel) {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
     var showNotificationDialog by remember { mutableStateOf(false) }
@@ -857,95 +893,169 @@ fun WaterTrackerApp(viewModel: WaterTrackerViewModel) {
         )
     }
 
-    var showBottomSheet by remember { mutableStateOf(false) }
+    var sheetScreen by remember { mutableStateOf<AppScreen?>(null) }
     var showResetDialog by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+
+    // 无限循环的横向分页：页码取模就能 1→2→1→2… 或反向
+    val pagerState = rememberPagerState(initialPage = INITIAL_PAGE) { Int.MAX_VALUE }
+    val currentScreen = APP_SCREENS[pagerState.currentPage % APP_SCREENS.size]
+
+    fun goNext() {
+        scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
+    }
+
+    fun goPrevious() {
+        scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Scaffold(
-            floatingActionButton = {
-                FloatingActionButton(
-                    onClick = { showBottomSheet = true },
-                    shape = CircleShape,
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
-                ) { Icon(Icons.Default.Settings, "设置") }
-            }
-        ) { padding ->
-            Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-                IconButton(
-                    onClick = { showResetDialog = true },
-                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "重置今日", tint = MaterialTheme.colorScheme.outline)
-                }
-
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(top = 40.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text("今日饮水", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "${viewModel.totalIntake}",
-                        fontSize = 80.sp, fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    if (viewModel.totalIntake >= viewModel.dailyGoal) {
-                        Text(
-                            "已达标",
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = Color(0xFF4CAF50),
-                            fontWeight = FontWeight.Bold
-                        )
-                    } else {
-                        Text(
-                            "/ ${viewModel.dailyGoal} mL",
-                            style = MaterialTheme.typography.titleLarge
-                        )
-                    }
-                    Spacer(modifier = Modifier.weight(1f))
-                    TrapezoidCup(viewModel.cupCapacity) { viewModel.addWater(context, it) }
-                    Spacer(modifier = Modifier.height(60.dp))
-                }
-            }
-            if (showBottomSheet) {
-                ModalBottomSheet(
-                    onDismissRequest = { showBottomSheet = false },
-                    sheetState = sheetState,
-                    dragHandle = null
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Spacer(modifier = Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
-                        BottomSheetDefaults.DragHandle()
-                        SettingsContent(viewModel)
-                    }
-                }
-            }
-            if (showResetDialog) {
-                AlertDialog(
-                    onDismissRequest = { showResetDialog = false },
-                    title = { Text("重置今日数据") },
-                    text = { Text("确定要将今日的饮水记录清零吗？此操作无法撤销。") },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                viewModel.resetDaily(context)
-                                showResetDialog = false
-                            },
-                            // 【修改点】添加这一行，将按钮文字设为红色（使用主题的 Error 色）
-                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                        ) {
-                            Text("重置")
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showResetDialog = false }) { Text("取消") }
-                    }
-                )
+        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+            when (APP_SCREENS[page % APP_SCREENS.size]) {
+                AppScreen.WATER -> WaterScreen(viewModel, onReset = { showResetDialog = true })
+                AppScreen.POMODORO -> PomodoroScreen(pomodoro)
             }
         }
-        CelebrationEffect(
-            visible = viewModel.showCelebration,
-            onFinished = { viewModel.showCelebration = false }
+
+        // 悬浮层：小白条 + 开始/暂停 + 设置按钮
+        // 层级：页面内容 < 这一层 < 设置弹层
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 20.dp, bottom = 26.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            if (currentScreen == AppScreen.POMODORO) {
+                StartPauseButton(running = pomodoro.running) { pomodoro.toggle() }
+                Spacer(Modifier.height(12.dp))
+            }
+            FloatingActionButton(
+                onClick = { sheetScreen = currentScreen },
+                shape = CircleShape,
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer
+            ) { Icon(Icons.Default.Settings, "设置") }
+        }
+
+        SwipeBar(
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
+            onNext = { goNext() },
+            onPrevious = { goPrevious() }
+        )
+
+        if (sheetScreen != null) {
+            ModalBottomSheet(
+                onDismissRequest = { sheetScreen = null },
+                sheetState = sheetState,
+                dragHandle = null
+            ) {
+                SettingsSheet(sheetScreen!!, viewModel, pomodoro)
+            }
+        }
+    }
+
+    if (showResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetDialog = false },
+            title = { Text("重置今日数据") },
+            text = { Text("确定要将今日的饮水记录清零吗？此操作无法撤销。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.resetDaily(context)
+                        showResetDialog = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text("重置") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetDialog = false }) { Text("取消") }
+            }
+        )
+    }
+}
+
+@Composable
+fun WaterScreen(viewModel: WaterTrackerViewModel, onReset: () -> Unit) {
+    val context = LocalContext.current
+    Box(modifier = Modifier.fillMaxSize()) {
+        IconButton(
+            onClick = onReset,
+            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
+        ) {
+            Icon(Icons.Default.Refresh, contentDescription = "重置今日", tint = MaterialTheme.colorScheme.outline)
+        }
+
+        Column(
+            modifier = Modifier.fillMaxSize().padding(top = 40.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("今日饮水", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "${viewModel.totalIntake}",
+                fontSize = 80.sp, fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            if (viewModel.totalIntake >= viewModel.dailyGoal) {
+                Text(
+                    "已达标",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = Color(0xFF4CAF50),
+                    fontWeight = FontWeight.Bold
+                )
+            } else {
+                Text(
+                    "/ ${viewModel.dailyGoal} mL",
+                    style = MaterialTheme.typography.titleLarge
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            TrapezoidCup(viewModel.cupCapacity) { viewModel.addWater(context, it) }
+            // 底部留白加大，杯子整体上移，同时避开底部小白条
+            Spacer(modifier = Modifier.height(84.dp))
+        }
+    }
+    CelebrationEffect(
+        visible = viewModel.showCelebration,
+        onFinished = { viewModel.showCelebration = false }
+    )
+}
+
+/** 底部小白条：左右滑动或点击左右半区切换功能页 */
+@Composable
+private fun SwipeBar(modifier: Modifier = Modifier, onNext: () -> Unit, onPrevious: () -> Unit) {
+    var dragTotal by remember { mutableFloatStateOf(0f) }
+    Box(
+        modifier = modifier
+            .width(120.dp)
+            .height(28.dp)
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    if (offset.x > size.width / 2f) onNext() else onPrevious()
+                }
+            }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { dragTotal = 0f },
+                    onDragEnd = {
+                        if (dragTotal < -36f) onNext() else if (dragTotal > 36f) onPrevious()
+                        dragTotal = 0f
+                    }
+                ) { change, dragAmount ->
+                    change.consume()
+                    dragTotal += dragAmount
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .width(96.dp)
+                .height(5.dp)
+                .background(
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                    RoundedCornerShape(percent = 50)
+                )
         )
     }
 }
@@ -981,7 +1091,7 @@ fun TrapezoidCup(cupCapacity: Int, onDrinkConfirmed: (Int) -> Unit) {
 @Composable
 fun EditNumberDialog(title: String, initialValue: Int, onConfirm: (Int) -> Unit, onDismiss: () -> Unit) {
     var text by remember { mutableStateOf(initialValue.toString()) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { OutlinedTextField(value = text, onValueChange = { if (it.all { c -> c.isDigit() }) text = it }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, label = { Text("输入数值") }) }, confirmButton = { TextButton(onClick = { val num = text.toIntOrNull(); if (num != null && num > 0) onConfirm(num) }) { Text("确定") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { OutlinedTextField(value = text, onValueChange = { if (it.all { c -> c.isDigit() }) text = it }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, shape = RoundedCornerShape(percent = 50), label = { Text("输入数值") }) }, confirmButton = { TextButton(onClick = { val num = text.toIntOrNull(); if (num != null && num > 0) onConfirm(num) }) { Text("确定") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
 }
 
 // --- 【新增】百分比编辑弹窗（含滑条）---
@@ -1017,6 +1127,7 @@ fun EditPercentageDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     label = { Text("百分比 (%)") },
                     singleLine = true,
+                    shape = RoundedCornerShape(percent = 50),
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -1060,297 +1171,6 @@ fun WaterTimePickerDialog(onDismiss: () -> Unit, onConfirm: (Int, Int) -> Unit) 
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SettingsContent(viewModel: WaterTrackerViewModel) {
-    val context = LocalContext.current
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        viewModel.notificationsGranted = granted
-        if (!granted) Toast.makeText(context, "没有拿到通知权限，请到系统设置里手动开启", Toast.LENGTH_LONG).show()
-    }
-
-    // 每次打开设置页都重新读一次权限状态，从系统设置返回后能立刻反映
-    LaunchedEffect(Unit) { viewModel.refreshPermissionState(context) }
-
-    var showGoalDialog by remember { mutableStateOf(false) }
-    var showCapacityDialog by remember { mutableStateOf(false) }
-    var showWeightDialog by remember { mutableStateOf(false) }
-    var showTimePicker by remember { mutableStateOf(false) }
-    var showCheckTimePicker by remember { mutableStateOf(false) }
-    // 【新增】百分比弹窗状态
-    var showPercentageDialog by remember { mutableStateOf(false) }
-
-    if (showGoalDialog) EditNumberDialog(title = "设定每日目标 (mL)", initialValue = viewModel.dailyGoal, onConfirm = { viewModel.updateDailyGoal(context, it); showGoalDialog = false }, onDismiss = { showGoalDialog = false })
-    if (showWeightDialog) EditNumberDialog(title = "体重 (kg)", initialValue = viewModel.weightKg, onConfirm = { viewModel.updateWeight(context, it); showWeightDialog = false }, onDismiss = { showWeightDialog = false })
-    if (showCapacityDialog) EditNumberDialog(title = "设定杯子容量 (mL)", initialValue = viewModel.cupCapacity, onConfirm = { viewModel.updateCupCapacity(context, it); showCapacityDialog = false }, onDismiss = { showCapacityDialog = false })
-    if (showTimePicker) WaterTimePickerDialog(onDismiss = { showTimePicker = false }, onConfirm = { h, m -> viewModel.addReminder(context, String.format("%02d:%02d", h, m)); Toast.makeText(context, "设置成功", Toast.LENGTH_SHORT).show(); showTimePicker = false })
-    if (showCheckTimePicker) WaterTimePickerDialog(onDismiss = { showCheckTimePicker = false }, onConfirm = { h, m -> viewModel.updateCheckTime(context, String.format("%02d:%02d", h, m)); Toast.makeText(context, "设置成功", Toast.LENGTH_SHORT).show(); showCheckTimePicker = false })
-
-    // 【新增】显示百分比设置弹窗 (使用新的 EditPercentageDialog)
-    if (showPercentageDialog) {
-        EditPercentageDialog(
-            initialValue = viewModel.checkPercentage,
-            onConfirm = {
-                viewModel.updateCheckPercentage(context, it)
-                showPercentageDialog = false
-            },
-            onDismiss = { showPercentageDialog = false }
-        )
-    }
-
-    LazyColumn(contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-        item {
-            Text("外观", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary); Spacer(Modifier.height(8.dp))
-            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(0 to "跟随系统", 1 to "浅色", 2 to "暗色").forEach { (mode, label) -> FilterChip(selected = viewModel.themeMode == mode, onClick = { viewModel.updateTheme(context, mode) }, shape = CircleShape, label = { Text(label) }, leadingIcon = if (viewModel.themeMode == mode) { { Icon(Icons.Default.Check, null) } } else null) } }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
-            ) {
-                Text(
-                    "暗色模式使用纯黑",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.outline
-                )
-                Spacer(Modifier.weight(1f))
-                Switch(
-                    checked = viewModel.oledBlack,
-                    onCheckedChange = { viewModel.updateOledBlack(context, it) }
-                )
-            }
-            Divider(Modifier.padding(top = 20.dp))
-        }
-        item {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Text("每日目标", style = MaterialTheme.typography.bodyLarge)
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        text = "${viewModel.dailyGoal} mL",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        modifier = if (viewModel.manualGoal) {
-                            Modifier.clip(RoundedCornerShape(8.dp))
-                                .clickable { showGoalDialog = true }
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        } else {
-                            Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        }
-                    )
-                }
-
-                // 手动设置开关：开 = 自己填，关 = 按体重自动算
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
-                ) {
-                    Text(
-                        "开启手动设置",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                    Spacer(Modifier.weight(1f))
-                    Switch(
-                        checked = viewModel.manualGoal,
-                        onCheckedChange = { viewModel.updateManualGoal(context, it) }
-                    )
-                }
-
-                // 高度以手动模式为基准固定，切换模式时页面不会跳动
-                Box(modifier = Modifier.fillMaxWidth().height(64.dp)) {
-                    AnimatedContent(
-                        targetState = viewModel.manualGoal,
-                        transitionSpec = {
-                            (fadeIn(tween(200)) + slideInVertically(tween(200)) { it / 4 }) togetherWith
-                                (fadeOut(tween(140)) + slideOutVertically(tween(140)) { -it / 4 })
-                        },
-                        label = "goal-mode"
-                    ) { manual ->
-                        if (manual) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                horizontalArrangement = Arrangement.End
-                            ) {
-                                Button(onClick = { if (viewModel.dailyGoal > 500) viewModel.updateDailyGoal(context, viewModel.dailyGoal - 500) }) { Text("-500") }
-                                Spacer(Modifier.width(8.dp))
-                                Button(onClick = { viewModel.updateDailyGoal(context, viewModel.dailyGoal + 500) }) { Text("+500") }
-                            }
-                        } else {
-                            Column(modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                    Text("体重", style = MaterialTheme.typography.bodyMedium)
-                                    Spacer(Modifier.weight(1f))
-                                    Text(
-                                        text = "${viewModel.weightKg} kg",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.clip(RoundedCornerShape(8.dp))
-                                            .clickable { showWeightDialog = true }
-                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                                    )
-                                }
-                                Text(
-                                    "建议饮水量 = ${viewModel.weightKg} × 35 − 1000 = ${suggestedIntake(viewModel.weightKg)} mL",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline,
-                                    modifier = Modifier.padding(top = 4.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            Divider(Modifier.padding(top = 16.dp))
-        }
-        item {
-            SettingItem(title = "水杯容量", value = "${viewModel.cupCapacity} mL", onValueClick = { showCapacityDialog = true }) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    Button(onClick = { if (viewModel.cupCapacity > 50) viewModel.updateCupCapacity(context, viewModel.cupCapacity - 50) }) { Text("-50") }
-                    Spacer(Modifier.width(8.dp))
-                    Button(onClick = { viewModel.updateCupCapacity(context, viewModel.cupCapacity + 50) }) { Text("+50") }
-                }
-            }
-            Divider(Modifier.padding(top = 16.dp))
-        }
-        item {
-            SettingItem(title = "达标检查", value = viewModel.checkTime, onValueClick = { showCheckTimePicker = true }) { Text("每日此时检查饮水量", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline) }
-            Divider(Modifier.padding(top = 16.dp))
-        }
-
-        // 【新增】设置项：提醒阈值
-        item {
-            SettingItem(title = "提醒阈值", value = "${viewModel.checkPercentage}%", onValueClick = { showPercentageDialog = true }) {
-                Text("若未达到此百分比则发送提醒", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-            }
-            Divider(Modifier.padding(top = 16.dp))
-        }
-
-        item {
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("提醒时间", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                IconButton(onClick = { showTimePicker = true }, modifier = Modifier.background(MaterialTheme.colorScheme.primaryContainer, shape = CircleShape)) { Icon(Icons.Default.Add, contentDescription = "添加", tint = MaterialTheme.colorScheme.onPrimaryContainer) }
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-        if (viewModel.reminders.isEmpty()) item { Text("暂无提醒", color = MaterialTheme.colorScheme.outline) }
-        items(items = viewModel.reminders, key = { it }) { time ->
-            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(percent = 50)).padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(text = time, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                IconButton(onClick = { viewModel.removeReminder(context, time) }) { Icon(Icons.Default.Delete, contentDescription = "删除", tint = MaterialTheme.colorScheme.error) }
-            }
-        }
-        item {
-            Text("权限", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(8.dp))
-            PermissionItem(
-                title = "通知权限",
-                value = if (viewModel.notificationsGranted) "已开启" else "未开启（提醒无法显示）",
-                isOn = viewModel.notificationsGranted,
-                actionLabel = if (viewModel.notificationsGranted) "系统设置" else "去开启",
-                onAction = {
-                    // 没被问过就走系统弹窗；已经拒绝过系统不会再弹，直接跳应用通知设置
-                    val asked = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                        .getBoolean(KEY_NOTIFICATION_ASKED, false)
-                    if (!viewModel.notificationsGranted && !asked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                    } else {
-                        openAppNotificationSettings(context)
-                    }
-                }
-            )
-            PermissionItem(
-                title = "电池优化",
-                value = if (viewModel.ignoringBatteryOptimizations) "已忽略（可后台运行）" else "未忽略（可能延迟提醒）",
-                isOn = viewModel.ignoringBatteryOptimizations,
-                actionLabel = if (viewModel.ignoringBatteryOptimizations) "查看" else "去设置",
-                onAction = {
-                    if (viewModel.ignoringBatteryOptimizations) {
-                        startSystemScreen(context, Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                    } else {
-                        requestIgnoreBatteryOptimizations(context)
-                    }
-                }
-            )
-            PermissionItem(
-                title = "精确闹钟",
-                value = if (viewModel.exactAlarmsAllowed) "已允许" else "未允许（提醒可能晚几分钟）",
-                isOn = viewModel.exactAlarmsAllowed,
-                actionLabel = "去设置",
-                onAction = { requestExactAlarmPermission(context) }
-            )
-            Divider(Modifier.padding(top = 16.dp))
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(20.dp))
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.Start
-            ) {
-                Text(
-                    "v" + BuildConfig.VERSION_NAME,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    "yuki39fufu",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // 深色主题配浅色字标，浅色主题配深色字标
-                val darkFooter = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "Powered by ",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                    // 官方 SVG 转换而来，按 12dp 高度等比缩放
-                    Image(
-                        painter = painterResource(R.drawable.deepseek_logo),
-                        contentDescription = "DeepSeek",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.height(12.dp).width(57.dp)
-                    )
-                    Text(
-                        " & ",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                    Image(
-                        painter = painterResource(
-                            if (darkFooter) R.drawable.gemini_logo_dark else R.drawable.gemini_logo_light
-                        ),
-                        contentDescription = "Gemini",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.height(12.dp).width(53.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-
-                val uriHandler = LocalUriHandler.current
-                Text(
-                    GITHUB_URL,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.clickable {
-                        runCatching { uriHandler.openUri(GITHUB_URL) }
-                    }
-                )
-            }
-            Spacer(Modifier.height(40.dp))
-        }
-    }
-}
-
-
 @Composable
 fun SettingItem(title: String, value: String, onValueClick: (() -> Unit)? = null, controls: @Composable () -> Unit) {
     Column {
