@@ -272,7 +272,7 @@ fun WaterSettingsContent(viewModel: WaterTrackerViewModel) {
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 modifier = if (viewModel.manualGoal) {
-                    Modifier.clip(RoundedCornerShape(8.dp))
+                    Modifier.clip(RoundedCornerShape(percent = 50))
                         .clickable { showGoalDialog = true }
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                         .padding(horizontal = 8.dp, vertical = 4.dp)
@@ -330,7 +330,7 @@ fun WaterSettingsContent(viewModel: WaterTrackerViewModel) {
                                 text = "${viewModel.weightKg} kg",
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                                modifier = Modifier.clip(RoundedCornerShape(percent = 50))
                                     .clickable { showWeightDialog = true }
                                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                                     .padding(horizontal = 8.dp, vertical = 2.dp)

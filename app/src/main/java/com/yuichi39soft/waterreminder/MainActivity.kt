@@ -39,7 +39,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
@@ -53,6 +52,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -84,6 +84,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -957,12 +958,6 @@ fun WaterTrackerApp(viewModel: WaterTrackerViewModel, pomodoro: PomodoroViewMode
                 .width(56.dp)
                 .height(204.dp)
         ) {
-            FloatingActionButton(
-                onClick = { sheetScreen = currentScreen },
-                modifier = Modifier.align(Alignment.BottomCenter),
-                shape = CircleShape,
-                containerColor = settingsColor
-            ) { Icon(Icons.Default.Settings, "设置") }
 
             // 番茄钟专属按钮：从设置按钮的位置滑上来，颜色同步过渡
             if (pomoProgress > 0.001f) {
@@ -998,19 +993,25 @@ fun WaterTrackerApp(viewModel: WaterTrackerViewModel, pomodoro: PomodoroViewMode
                         .alpha(resetProgress)
                 )
             }
+
+            // 设置按钮最后绘制：始终压在最上层，动画中的按钮从它下方"钻出来"
+            FloatingActionButton(
+                onClick = { sheetScreen = currentScreen },
+                modifier = Modifier.align(Alignment.BottomCenter),
+                shape = CircleShape,
+                containerColor = settingsColor
+            ) { Icon(Icons.Default.Settings, "设置") }
         }
 
-        SwipeBar(
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
-            onNext = { goNext() },
-            onPrevious = { goPrevious() }
-        )
 
-        SwipeBar(
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
-            onNext = { goNext() },
-            onPrevious = { goPrevious() }
-        )
+
+        // 达标烟花：放在根层，且只在饮水页显示，避免跑到番茄钟页
+        if (currentScreen == AppScreen.WATER) {
+            CelebrationEffect(
+                visible = viewModel.showCelebration,
+                onFinished = { viewModel.showCelebration = false }
+            )
+        }
 
         if (sheetScreen != null) {
             ModalBottomSheet(
@@ -1084,44 +1085,6 @@ fun WaterScreen(viewModel: WaterTrackerViewModel, onReset: () -> Unit) {
             Spacer(modifier = Modifier.height(84.dp))
         }
     }
-    CelebrationEffect(
-        visible = viewModel.showCelebration,
-        onFinished = { viewModel.showCelebration = false }
-    )
-}
-
-/** 底部小白条：左右滑动或点击左右半区切换功能页 */
-@Composable
-private fun SwipeBar(modifier: Modifier = Modifier, onNext: () -> Unit, onPrevious: () -> Unit) {
-    var dragTotal by remember { mutableFloatStateOf(0f) }
-    Box(
-        modifier = modifier
-            .width(120.dp)
-            .height(28.dp)
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragStart = { dragTotal = 0f },
-                    onDragEnd = {
-                        if (dragTotal < -36f) onNext() else if (dragTotal > 36f) onPrevious()
-                        dragTotal = 0f
-                    }
-                ) { change, dragAmount ->
-                    change.consume()
-                    dragTotal += dragAmount
-                }
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        Box(
-            modifier = Modifier
-                .width(96.dp)
-                .height(5.dp)
-                .background(
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-                    RoundedCornerShape(percent = 50)
-                )
-        )
-    }
 }
 
 @Composable
@@ -1155,7 +1118,7 @@ fun TrapezoidCup(cupCapacity: Int, onDrinkConfirmed: (Int) -> Unit) {
 @Composable
 fun EditNumberDialog(title: String, initialValue: Int, onConfirm: (Int) -> Unit, onDismiss: () -> Unit) {
     var text by remember { mutableStateOf(initialValue.toString()) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { OutlinedTextField(value = text, onValueChange = { if (it.all { c -> c.isDigit() }) text = it }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, shape = RoundedCornerShape(percent = 50), label = { Text("输入数值") }) }, confirmButton = { TextButton(onClick = { val num = text.toIntOrNull(); if (num != null && num > 0) onConfirm(num) }) { Text("确定") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { OutlinedTextField(value = text, onValueChange = { if (it.all { c -> c.isDigit() }) text = it }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, shape = RoundedCornerShape(percent = 50), label = { Text("  输入数值") }) }, confirmButton = { TextButton(onClick = { val num = text.toIntOrNull(); if (num != null && num > 0) onConfirm(num) }) { Text("确定") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
 }
 
 // --- 【新增】百分比编辑弹窗（含滑条）---
@@ -1230,17 +1193,91 @@ fun EditPercentageDialog(
 @Composable
 fun WaterTimePickerDialog(onDismiss: () -> Unit, onConfirm: (Int, Int) -> Unit) {
     val currentTime = Calendar.getInstance()
-    val timeState = rememberTimePickerState(initialHour = currentTime.get(Calendar.HOUR_OF_DAY), initialMinute = currentTime.get(Calendar.MINUTE), is24Hour = true)
-    AlertDialog(onDismissRequest = onDismiss, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }, confirmButton = { TextButton(onClick = { onConfirm(timeState.hour, timeState.minute) }) { Text("确定") } }, text = { TimePicker(state = timeState) })
+    var hourText by remember { mutableStateOf(String.format("%02d", currentTime.get(Calendar.HOUR_OF_DAY))) }
+    var minuteText by remember { mutableStateOf(String.format("%02d", currentTime.get(Calendar.MINUTE))) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("设置时间") },
+        text = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                // 小时：左侧胶囊，右侧保持小圆角
+                TimeField(
+                    value = hourText,
+                    pillOnLeft = true,
+                    onValueChange = { input -> if (input.length <= 2 && input.all { it.isDigit() }) hourText = input }
+                )
+                Text(
+                    ":",
+                    style = MaterialTheme.typography.displaySmall,
+                    modifier = Modifier.padding(horizontal = 6.dp)
+                )
+                // 分钟：右侧胶囊，左侧保持小圆角
+                TimeField(
+                    value = minuteText,
+                    pillOnLeft = false,
+                    onValueChange = { input -> if (input.length <= 2 && input.all { it.isDigit() }) minuteText = input }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val h = hourText.toIntOrNull() ?: currentTime.get(Calendar.HOUR_OF_DAY)
+                val m = minuteText.toIntOrNull() ?: currentTime.get(Calendar.MINUTE)
+                onConfirm(h.coerceIn(0, 23), m.coerceIn(0, 59))
+            }) { Text("确定") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    )
 }
 
+/** 时间输入框：一半是胶囊圆角，另一半是小圆角，两个拼起来像个胶囊 */
+@Composable
+private fun TimeField(value: String, pillOnLeft: Boolean, onValueChange: (String) -> Unit) {
+    val shape = if (pillOnLeft) {
+        RoundedCornerShape(
+            topStartPercent = 50, bottomStartPercent = 50,
+            topEndPercent = 12, bottomEndPercent = 12
+        )
+    } else {
+        RoundedCornerShape(
+            topStartPercent = 12, bottomStartPercent = 12,
+            topEndPercent = 50, bottomEndPercent = 50
+        )
+    }
+    Box(
+        modifier = Modifier
+            .width(104.dp)
+            .height(76.dp)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            textStyle = MaterialTheme.typography.displaySmall.copy(
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Bold
+            ),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingItem(title: String, value: String, onValueClick: (() -> Unit)? = null, controls: @Composable () -> Unit) {
     Column {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text(title, style = MaterialTheme.typography.bodyLarge); Spacer(Modifier.weight(1f))
-            Text(text = value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(8.dp)).then(if (onValueClick != null) { Modifier.clickable { onValueClick() }.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)).padding(horizontal = 8.dp, vertical = 4.dp) } else Modifier))
+            Text(text = value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(percent = 50)).then(if (onValueClick != null) { Modifier.clickable { onValueClick() }.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)).padding(horizontal = 8.dp, vertical = 4.dp) } else Modifier))
         }
         Spacer(Modifier.height(8.dp)); controls()
     }
