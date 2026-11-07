@@ -1122,7 +1122,7 @@ fun TrapezoidCup(cupCapacity: Int, onDrinkConfirmed: (Int) -> Unit) {
 @Composable
 fun EditNumberDialog(title: String, initialValue: Int, onConfirm: (Int) -> Unit, onDismiss: () -> Unit) {
     var text by remember { mutableStateOf(initialValue.toString()) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { PillOutlinedField(value = text, onValueChange = { if (it.all { c -> c.isDigit() }) text = it }, label = "输入数值") }, confirmButton = { TextButton(onClick = { val num = text.toIntOrNull(); if (num != null && num > 0) onConfirm(num) }) { Text("确定") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { OutlinedTextField(value = text, onValueChange = { if (it.all { c -> c.isDigit() }) text = it }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, shape = RoundedCornerShape(percent = 50), label = { Text("输入数值") }) }, confirmButton = { TextButton(onClick = { val num = text.toIntOrNull(); if (num != null && num > 0) onConfirm(num) }) { Text("确定") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
 }
 
 // --- 【新增】百分比编辑弹窗（含滑条）---
@@ -1143,19 +1143,22 @@ fun EditPercentageDialog(
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 // 数字输入框
-                PillOutlinedField(
+                OutlinedTextField(
                     value = textValue,
-                    onValueChange = { it2 ->
-                        if (it2.all { char -> char.isDigit() }) {
-                            textValue = it2
-                            val num = it2.toIntOrNull()
+                    onValueChange = {
+                        if (it.all { char -> char.isDigit() }) {
+                            textValue = it
+                            val num = it.toIntOrNull()
                             if (num != null) {
                                 // 限制滑条范围 1-99
                                 sliderPosition = num.coerceIn(1, 99).toFloat()
                             }
                         }
                     },
-                    label = "百分比 (%)",
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    label = { Text("百分比 (%)") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(percent = 50),
                     modifier = Modifier.fillMaxWidth()
                 )
 
