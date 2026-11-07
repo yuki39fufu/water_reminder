@@ -260,7 +260,7 @@ private fun ClockDial(
     val targetRadiusFactor = when {
         !selectingHour -> 0.78f
         hour in 1..12 -> 0.56f
-        else -> 0.84f
+        else -> 0.82f
     }
     val selectorRadiusFactor by animateFloatAsState(
         targetValue = targetRadiusFactor,
@@ -310,7 +310,7 @@ private fun ClockDial(
             for (i in 0..11) {
                 val v = if (i == 0) 0 else 12 + i
                 val angle = Math.toRadians((-90.0 + i * 30.0))
-                val r = radius * 0.84f
+                val r = radius * 0.82f
                 val pos = Offset(cx + r * cos(angle).toFloat(), cy + r * sin(angle).toFloat())
                 drawNumber(measurer, if (v < 10) "0$v" else v.toString(), pos, textStyle, color)
             }
@@ -335,9 +335,9 @@ private fun ClockDial(
             end = selPos,
             strokeWidth = 2.dp.toPx()
         )
-        drawCircle(color = selectorColor, radius = 22.dp.toPx(), center = selPos)
+        drawCircle(color = selectorColor, radius = 17.dp.toPx(), center = selPos)
         val selText = if (selectingHour) String.format("%02d", hour) else String.format("%02d", minute)
-        drawNumber(measurer, selText, selPos, textStyle.copy(color = selectorTextColor, fontSize = 15.sp), selectorTextColor)
+        drawNumber(measurer, selText, selPos, textStyle.copy(color = selectorTextColor, fontSize = 14.sp), selectorTextColor)
         drawCircle(color = selectorColor, radius = 4.dp.toPx(), center = Offset(cx, cy))
     }
 }
