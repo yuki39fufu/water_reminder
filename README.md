@@ -5,7 +5,7 @@
 ![Compose](https://img.shields.io/badge/Jetpack-Compose-blue.svg?style=flat&logo=jetpackcompose)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**Water Reminder** 是一款现代、极简且智能的 Android 饮水追踪应用。采用最新的 Jetpack Compose 构建，拥有沉浸式的 UI 设计、流畅的交互动画以及高度可定制的提醒功能，旨在帮助用户养成健康的饮水习惯。
+**Water Reminder** 是一款现代、极简且智能的 Android 应用，内置**饮水提醒**与**番茄钟**两个功能，左右滑动即可切换。采用最新的 Jetpack Compose 构建，拥有沉浸式的 UI 设计、流畅的交互动画以及高度可定制的提醒功能，旨在帮助用户养成健康习惯。
 
 （本项目完全由Deepseek 与Gemini构建，所以别提Issue，你看我注释都扔在代码里头没删）
 
@@ -29,6 +29,12 @@
     * 可自定义达标阈值。
     * 若届时饮水量不足设定百分比，将发送额外提醒鼓励补水。
 
+### 番茄钟
+* **双色环形进度**: 圆环按「专注 : 休息」的比例分成两段，随时间从 12 点方向顺时针"吃掉"，露出底环；内外描边 + 分界处共用一条分隔线。
+* **可自定义**: 专注时长、休息时长、循环轮次都能直接点数值修改，也可以在设置里调整。
+* **精确计时**: 以结束时间戳为准，切后台 / 锁屏 / 杀进程后重新打开都能对上时间；阶段结束由 `AlarmManager` 兜底，后台也会响铃 + 通知。
+* **开始 / 暂停 / 重置**: 悬浮按钮带过场动画，暂停在中途时才出现重置按钮。
+
 ### 个性化设置
 * **目标设定**: 自由设定每日饮水目标（mL），或根据体重自动计算（`体重(kg) × 35 − 1000 mL`）。
 * **提醒管理**: 列表式管理每日提醒时间点，支持一键添加/删除。
@@ -47,13 +53,13 @@
 * **后台任务**:
     * `AlarmManager` (`setAlarmClock`，锁屏 / Doze 下仍能准时唤醒)
     * `BroadcastReceiver`
-* **动画**: Compose Animation API (`Animatable`, `Canvas` 粒子系统)
+* **动画**: Compose Animation API（`Animatable`、`Canvas` 粒子系统、自绘环形 / 表盘）
 * **兼容性**: Min SDK 33 (Android 13.0) ~ Target SDK 36
 
 ## 📥 安装与构建
 
 ### 直接安装
-请前往 [Releases](../../releases) 页面下载最新版本的 APK 文件（`v1.2.1`）。
+请前往 [Releases](../../releases) 页面下载最新版本的 APK 文件（`v1.3.0`）。
 
 ### 源码构建
 1.  克隆仓库：
