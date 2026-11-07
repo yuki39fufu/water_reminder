@@ -3,6 +3,9 @@ package com.yuichi39soft.waterreminder
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import androidx.compose.animation.togetherWith
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import android.media.RingtoneManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -235,6 +238,12 @@ class PomodoroViewModel(context: Context) {
         endAt = 0L
         persist()
         cancelAlarm()
+    }
+
+    /** 暂停在非初始状态：此时才需要显示重置按钮 */
+    fun isMidway(): Boolean {
+        if (running) return false
+        return currentRound > 1 || phase != PomodoroPhase.FOCUS || remainingMillis < phaseMs() - 500L
     }
 
     /** 返回刚刚结束的阶段（若有），由调用方负责响铃 */
@@ -498,11 +507,11 @@ fun PomodoroRing(
             style = Stroke(width = outlineStroke)
         )
 
-        // 专注/休息分界：一条与描边同宽的线，避免两段各自描边叠加成 4dp
-        if (focusAngle > 0.5f && focusAngle < 359.5f) {
-            val angle = Math.toRadians((-90f + focusAngle).toDouble())
-            val inner = radius - stroke / 2f
-            val outer = radius + stroke / 2f
+        // 分界线：专注/休息交界一条，12 点方向（专注起点 = 休息终点）再一条
+        val inner = radius - stroke / 2f
+        val outer = radius + stroke / 2f
+        fun drawBoundary(angleDeg: Float) {
+            val angle = Math.toRadians(angleDeg.toDouble())
             drawLine(
                 color = outlineColor,
                 start = Offset(
@@ -517,50 +526,106 @@ fun PomodoroRing(
                 cap = StrokeCap.Butt
             )
         }
+        if (focusAngle > 0.5f && focusAngle < 359.5f) {
+            drawBoundary(-90f + focusAngle)
+        }
+        // 12 点方向：两段颜色在这里首尾相接，也要一条线
+        drawBoundary(-90f)
+    }
+}
+
+/** 播放 / 暂停图标（纯代码绘制，便于做切换动画） */
+@Composable
+private fun PlayPauseGlyph(running: Boolean, color: Color) {
+    Canvas(modifier = Modifier.size(22.dp)) {
+        if (running) {
+            val barWidth = size.width * 0.26f
+            val gap = size.width * 0.18f
+            val top = size.height * 0.16f
+            val barHeight = size.height * 0.68f
+            val radius = androidx.compose.ui.geometry.CornerRadius(barWidth / 2f)
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(size.width / 2f - gap / 2f - barWidth, top),
+                size = Size(barWidth, barHeight),
+                cornerRadius = radius
+            )
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(size.width / 2f + gap / 2f, top),
+                size = Size(barWidth, barHeight),
+                cornerRadius = radius
+            )
+        } else {
+            val path = androidx.compose.ui.graphics.Path().apply {
+                moveTo(size.width * 0.28f, size.height * 0.14f)
+                lineTo(size.width * 0.84f, size.height * 0.5f)
+                lineTo(size.width * 0.28f, size.height * 0.86f)
+                close()
+            }
+            drawPath(path, color)
+        }
     }
 }
 
 /** 开始 / 暂停按钮（悬浮层里，位于设置按钮上方） */
 @Composable
-fun StartPauseButton(running: Boolean, onClick: () -> Unit) {
-    val iconColor = MaterialTheme.colorScheme.onPrimaryContainer
+fun StartPauseButton(
+    running: Boolean,
+    containerColor: Color,
+    iconColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     androidx.compose.material3.FloatingActionButton(
         onClick = onClick,
+        modifier = modifier,
         shape = androidx.compose.foundation.shape.CircleShape,
-        containerColor = MaterialTheme.colorScheme.primaryContainer
+        containerColor = containerColor
     ) {
-        Canvas(modifier = Modifier.size(22.dp)) {
-            if (running) {
-                val barWidth = size.width * 0.26f
-                val gap = size.width * 0.18f
-                val top = size.height * 0.16f
-                val barHeight = size.height * 0.68f
-                val radius = androidx.compose.ui.geometry.CornerRadius(barWidth / 2f)
-                drawRoundRect(
-                    color = iconColor,
-                    topLeft = Offset(size.width / 2f - gap / 2f - barWidth, top),
-                    size = Size(barWidth, barHeight),
-                    cornerRadius = radius
-                )
-                drawRoundRect(
-                    color = iconColor,
-                    topLeft = Offset(size.width / 2f + gap / 2f, top),
-                    size = Size(barWidth, barHeight),
-                    cornerRadius = radius
-                )
-            } else {
-                val path = androidx.compose.ui.graphics.Path().apply {
-                    moveTo(size.width * 0.28f, size.height * 0.14f)
-                    lineTo(size.width * 0.84f, size.height * 0.5f)
-                    lineTo(size.width * 0.28f, size.height * 0.86f)
-                    close()
-                }
-                drawPath(path, iconColor)
-            }
+        androidx.compose.animation.AnimatedContent(
+            targetState = running,
+            transitionSpec = {
+                (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(170)) +
+                    androidx.compose.animation.scaleIn(
+                        animationSpec = androidx.compose.animation.core.tween(220),
+                        initialScale = 0.55f
+                    )) togetherWith
+                    (androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)) +
+                        androidx.compose.animation.scaleOut(
+                            animationSpec = androidx.compose.animation.core.tween(160),
+                            targetScale = 0.55f
+                        ))
+            },
+            label = "play-pause"
+        ) { isRunning ->
+            PlayPauseGlyph(isRunning, iconColor)
         }
     }
 }
 
+/** 重置按钮：暂停在非初始状态时出现在开始/暂停按钮上方 */
+@Composable
+fun ResetButton(
+    containerColor: Color,
+    iconColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.material3.FloatingActionButton(
+        onClick = onClick,
+        modifier = modifier,
+        shape = androidx.compose.foundation.shape.CircleShape,
+        containerColor = containerColor
+    ) {
+        androidx.compose.material3.Icon(
+            imageVector = Icons.Default.Refresh,
+            contentDescription = "重置",
+            tint = iconColor,
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
 /** 阶段结束响铃（系统默认通知音） */
 fun playPhaseChime(context: Context) {
     runCatching {

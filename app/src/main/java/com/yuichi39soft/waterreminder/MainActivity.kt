@@ -26,6 +26,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -63,10 +65,12 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -925,24 +929,82 @@ fun WaterTrackerApp(viewModel: WaterTrackerViewModel, pomodoro: PomodoroViewMode
             }
         }
 
-        // 悬浮层：小白条 + 开始/暂停 + 设置按钮
+        // 悬浮层：小白条 + 开始/暂停 + 重置 + 设置按钮
         // 层级：页面内容 < 这一层 < 设置弹层
-        Column(
+        val pomoProgress by animateFloatAsState(
+            targetValue = if (currentScreen == AppScreen.POMODORO) 1f else 0f,
+            animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing),
+            label = "pomodoro-buttons"
+        )
+        val resetVisible = currentScreen == AppScreen.POMODORO && pomodoro.isMidway()
+        val resetProgress by animateFloatAsState(
+            targetValue = if (resetVisible) 1f else 0f,
+            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+            label = "reset-button"
+        )
+
+        val step = 68.dp
+        val settingsColor = MaterialTheme.colorScheme.tertiaryContainer
+        val startColor = lerp(settingsColor, MaterialTheme.colorScheme.primaryContainer, pomoProgress)
+        // 重置按钮：红底 + 深红箭头（固定色，不随动态取色变浅）
+        val resetTargetColor = Color(0xFFE53935)
+        val resetColor = lerp(startColor, resetTargetColor, resetProgress)
+
+        Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 20.dp, bottom = 26.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(end = 20.dp, bottom = 26.dp)
+                .width(56.dp)
+                .height(204.dp)
         ) {
-            if (currentScreen == AppScreen.POMODORO) {
-                StartPauseButton(running = pomodoro.running) { pomodoro.toggle() }
-                Spacer(Modifier.height(12.dp))
-            }
             FloatingActionButton(
                 onClick = { sheetScreen = currentScreen },
+                modifier = Modifier.align(Alignment.BottomCenter),
                 shape = CircleShape,
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                containerColor = settingsColor
             ) { Icon(Icons.Default.Settings, "设置") }
+
+            // 番茄钟专属按钮：从设置按钮的位置滑上来，颜色同步过渡
+            if (pomoProgress > 0.001f) {
+                StartPauseButton(
+                    running = pomodoro.running,
+                    containerColor = startColor,
+                    iconColor = lerp(
+                        MaterialTheme.colorScheme.onTertiaryContainer,
+                        MaterialTheme.colorScheme.onPrimaryContainer,
+                        pomoProgress
+                    ),
+                    onClick = { pomodoro.toggle() },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .offset(y = -(step * pomoProgress))
+                        .alpha(pomoProgress)
+                )
+            }
+
+            // 暂停在非初始状态时才出现：从开始/暂停按钮的位置滑上来
+            if (resetProgress > 0.001f) {
+                ResetButton(
+                    containerColor = resetColor,
+                    iconColor = lerp(
+                        MaterialTheme.colorScheme.onPrimaryContainer,
+                        Color(0xFF7F0000),
+                        resetProgress
+                    ),
+                    onClick = { if (resetProgress > 0.6f) pomodoro.reset() },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .offset(y = -(step * (1f + resetProgress)))
+                        .alpha(resetProgress)
+                )
+            }
         }
+
+        SwipeBar(
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
+            onNext = { goNext() },
+            onPrevious = { goPrevious() }
+        )
 
         SwipeBar(
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
@@ -1036,11 +1098,6 @@ private fun SwipeBar(modifier: Modifier = Modifier, onNext: () -> Unit, onPrevio
         modifier = modifier
             .width(120.dp)
             .height(28.dp)
-            .pointerInput(Unit) {
-                detectTapGestures { offset ->
-                    if (offset.x > size.width / 2f) onNext() else onPrevious()
-                }
-            }
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
                     onDragStart = { dragTotal = 0f },
