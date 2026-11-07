@@ -1055,7 +1055,11 @@ fun WaterScreen(viewModel: WaterTrackerViewModel, onReset: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize()) {
         IconButton(
             onClick = onReset,
-            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
+            // 这是 edge-to-edge 布局，先让出状态栏高度，再留 16dp
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(16.dp)
         ) {
             Icon(Icons.Default.Refresh, contentDescription = "重置今日", tint = MaterialTheme.colorScheme.outline)
         }
