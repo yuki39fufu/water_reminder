@@ -959,6 +959,23 @@ fun WaterTrackerApp(viewModel: WaterTrackerViewModel, pomodoro: PomodoroViewMode
                 .height(204.dp)
         ) {
 
+            // 暂停在非初始状态时才出现：从开始/暂停按钮的位置滑上来
+            if (resetProgress > 0.001f) {
+                ResetButton(
+                    containerColor = resetColor,
+                    iconColor = lerp(
+                        MaterialTheme.colorScheme.onPrimaryContainer,
+                        Color(0xFF7F0000),
+                        resetProgress
+                    ),
+                    onClick = { if (resetProgress > 0.6f) pomodoro.reset() },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .offset(y = -(step * (1f + resetProgress)))
+                        .alpha(resetProgress)
+                )
+            }
+
             // 番茄钟专属按钮：从设置按钮的位置滑上来，颜色同步过渡
             if (pomoProgress > 0.001f) {
                 StartPauseButton(
@@ -977,23 +994,6 @@ fun WaterTrackerApp(viewModel: WaterTrackerViewModel, pomodoro: PomodoroViewMode
                 )
             }
 
-            // 暂停在非初始状态时才出现：从开始/暂停按钮的位置滑上来
-            if (resetProgress > 0.001f) {
-                ResetButton(
-                    containerColor = resetColor,
-                    iconColor = lerp(
-                        MaterialTheme.colorScheme.onPrimaryContainer,
-                        Color(0xFF7F0000),
-                        resetProgress
-                    ),
-                    onClick = { if (resetProgress > 0.6f) pomodoro.reset() },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .offset(y = -(step * (1f + resetProgress)))
-                        .alpha(resetProgress)
-                )
-            }
-
             // 设置按钮最后绘制：始终压在最上层，动画中的按钮从它下方"钻出来"
             FloatingActionButton(
                 onClick = { sheetScreen = currentScreen },
@@ -1006,6 +1006,10 @@ fun WaterTrackerApp(viewModel: WaterTrackerViewModel, pomodoro: PomodoroViewMode
 
 
         // 达标烟花：放在根层，且只在饮水页显示，避免跑到番茄钟页
+        LaunchedEffect(currentScreen) {
+            // 动画没播完就切走时，状态会残留，切回来会重播，这里清掉
+            if (currentScreen != AppScreen.WATER) viewModel.showCelebration = false
+        }
         if (currentScreen == AppScreen.WATER) {
             CelebrationEffect(
                 visible = viewModel.showCelebration,
@@ -1118,7 +1122,7 @@ fun TrapezoidCup(cupCapacity: Int, onDrinkConfirmed: (Int) -> Unit) {
 @Composable
 fun EditNumberDialog(title: String, initialValue: Int, onConfirm: (Int) -> Unit, onDismiss: () -> Unit) {
     var text by remember { mutableStateOf(initialValue.toString()) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { OutlinedTextField(value = text, onValueChange = { if (it.all { c -> c.isDigit() }) text = it }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, shape = RoundedCornerShape(percent = 50), label = { Text("  输入数值") }) }, confirmButton = { TextButton(onClick = { val num = text.toIntOrNull(); if (num != null && num > 0) onConfirm(num) }) { Text("确定") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { PillNumberField(value = text, onValueChange = { if (it.all { c -> c.isDigit() }) text = it }, label = "输入数值") }, confirmButton = { TextButton(onClick = { val num = text.toIntOrNull(); if (num != null && num > 0) onConfirm(num) }) { Text("确定") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
 }
 
 // --- 【新增】百分比编辑弹窗（含滑条）---
@@ -1189,88 +1193,6 @@ fun EditPercentageDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun WaterTimePickerDialog(onDismiss: () -> Unit, onConfirm: (Int, Int) -> Unit) {
-    val currentTime = Calendar.getInstance()
-    var hourText by remember { mutableStateOf(String.format("%02d", currentTime.get(Calendar.HOUR_OF_DAY))) }
-    var minuteText by remember { mutableStateOf(String.format("%02d", currentTime.get(Calendar.MINUTE))) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("设置时间") },
-        text = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                // 小时：左侧胶囊，右侧保持小圆角
-                TimeField(
-                    value = hourText,
-                    pillOnLeft = true,
-                    onValueChange = { input -> if (input.length <= 2 && input.all { it.isDigit() }) hourText = input }
-                )
-                Text(
-                    ":",
-                    style = MaterialTheme.typography.displaySmall,
-                    modifier = Modifier.padding(horizontal = 6.dp)
-                )
-                // 分钟：右侧胶囊，左侧保持小圆角
-                TimeField(
-                    value = minuteText,
-                    pillOnLeft = false,
-                    onValueChange = { input -> if (input.length <= 2 && input.all { it.isDigit() }) minuteText = input }
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                val h = hourText.toIntOrNull() ?: currentTime.get(Calendar.HOUR_OF_DAY)
-                val m = minuteText.toIntOrNull() ?: currentTime.get(Calendar.MINUTE)
-                onConfirm(h.coerceIn(0, 23), m.coerceIn(0, 59))
-            }) { Text("确定") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
-    )
-}
-
-/** 时间输入框：一半是胶囊圆角，另一半是小圆角，两个拼起来像个胶囊 */
-@Composable
-private fun TimeField(value: String, pillOnLeft: Boolean, onValueChange: (String) -> Unit) {
-    val shape = if (pillOnLeft) {
-        RoundedCornerShape(
-            topStartPercent = 50, bottomStartPercent = 50,
-            topEndPercent = 12, bottomEndPercent = 12
-        )
-    } else {
-        RoundedCornerShape(
-            topStartPercent = 12, bottomStartPercent = 12,
-            topEndPercent = 50, bottomEndPercent = 50
-        )
-    }
-    Box(
-        modifier = Modifier
-            .width(104.dp)
-            .height(76.dp)
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceVariant),
-        contentAlignment = Alignment.Center
-    ) {
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            textStyle = MaterialTheme.typography.displaySmall.copy(
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center,
-                fontWeight = FontWeight.Bold
-            ),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
-}
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingItem(title: String, value: String, onValueClick: (() -> Unit)? = null, controls: @Composable () -> Unit) {
