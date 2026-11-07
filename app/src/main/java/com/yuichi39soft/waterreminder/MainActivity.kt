@@ -1059,13 +1059,13 @@ fun WaterScreen(viewModel: WaterTrackerViewModel, onReset: () -> Unit) {
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
-                .padding(16.dp)
+                .padding(top = 2.dp, end = 16.dp)
         ) {
             Icon(Icons.Default.Refresh, contentDescription = "重置今日", tint = MaterialTheme.colorScheme.outline)
         }
 
         Column(
-            modifier = Modifier.fillMaxSize().padding(top = 40.dp),
+            modifier = Modifier.fillMaxSize().statusBarsPadding().padding(top = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text("今日饮水", style = MaterialTheme.typography.titleMedium)
