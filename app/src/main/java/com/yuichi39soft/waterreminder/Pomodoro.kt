@@ -95,6 +95,10 @@ class PomodoroViewModel(context: Context) {
     var completionSignal by mutableIntStateOf(0)
         private set
 
+    /** 每次点复原自增；UI 用它区分"复原"和正常走动 */
+    var resetSignal by mutableIntStateOf(0)
+        private set
+
     /** 最后结束的那个阶段属于第几轮 / 共几轮 / 是否跑完全部（通知文案用） */
     var lastFinishedRound by mutableIntStateOf(1)
         private set
@@ -268,6 +272,7 @@ class PomodoroViewModel(context: Context) {
     fun reset() {
         running = false
         completed = false
+        resetSignal++
         phase = PomodoroPhase.FOCUS
         currentRound = 1
         remainingMillis = focusMs()
@@ -509,10 +514,13 @@ fun PomodoroScreen(pomodoro: PomodoroViewModel, modifier: Modifier = Modifier) {
         Box(modifier = Modifier.size(280.dp), contentAlignment = Alignment.Center) {
             val targetConsumed = pomodoro.roundConsumedFraction()
             val consumedAnim = remember { Animatable(targetConsumed) }
-            LaunchedEffect(targetConsumed) {
-                // 正常走时每次只挪一点点（200ms 一跳）：直接跟住，别让环一直滞后；
-                // 点复原 / 阶段切换时跨度很大：走一段非线性（先快后慢）的回退动画。
-                if (abs(targetConsumed - consumedAnim.value) > 0.05f) {
+            var handledReset by remember { mutableIntStateOf(pomodoro.resetSignal) }
+            LaunchedEffect(targetConsumed, pomodoro.resetSignal) {
+                // 复原用显式信号触发：哪怕只跑了 2 秒、消耗不到 1%，也照样播回退动画。
+                val justReset = pomodoro.resetSignal != handledReset
+                if (justReset) handledReset = pomodoro.resetSignal
+                val delta = abs(targetConsumed - consumedAnim.value)
+                if (justReset || delta > 0.05f) {
                     consumedAnim.animateTo(
                         targetValue = targetConsumed,
                         animationSpec = tween(
@@ -521,6 +529,7 @@ fun PomodoroScreen(pomodoro: PomodoroViewModel, modifier: Modifier = Modifier) {
                         )
                     )
                 } else {
+                    // 正常走时每次只挪一点点（200ms 一跳）：直接跟住，别让环一直滞后
                     consumedAnim.snapTo(targetConsumed)
                 }
             }

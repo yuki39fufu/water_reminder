@@ -1216,10 +1216,9 @@ fun TrapezoidCup(cupCapacity: Int, onDrinkConfirmed: (Int) -> Unit) {
 
     LaunchedEffect(mode, targetLevel, dropFromLevel) {
         when (mode) {
-            CupGesture.DRAG -> level.animateTo(
-                targetValue = targetLevel,
-                animationSpec = spring(dampingRatio = 1f, stiffness = 1400f)
-            )
+            // 拖动期间完全吸附手指：弹簧会随着每次目标变化重启（速度归零），
+            // 快速拖动时反而一顿一顿的，这里不做任何平滑。
+            CupGesture.DRAG -> level.snapTo(targetLevel)
             CupGesture.DROP -> {
                 // 先上涌一点（惯性带起来的水），再加速落底
                 val peak = (dropFromLevel + 0.045f).coerceIn(0f, 1f)
