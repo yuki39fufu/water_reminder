@@ -8,9 +8,11 @@ import com.yuichi39soft.waterreminder.R
 
 /**
  * 全局字体：Google Sans Code。
- * 字体文件随 APK 打包（res/font），不依赖、也不会回退到手机系统字体。
- * 该字体是可变字体（wght 轴），这里按字重注册同一份文件，
- * 系统会按请求的字重取对应的轴实例。
+ * 文件随 APK 打包（res/font），是可变字体（wght / MONO 轴），
+ * 这里按字重注册同一份文件，系统按请求的字重取对应的轴实例。
+ *
+ * 为了体积，字体做过子集化（见 tools/subset_font.py），只保留 ASCII 与少量符号；
+ * 中文等子集里没有的字符会按字符回退到系统字体，这是预期行为。
  */
 val GoogleSansCode = FontFamily(
     Font(R.font.google_sans_code, FontWeight.Thin),

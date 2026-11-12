@@ -49,7 +49,7 @@
 * **UI 框架**: [Jetpack Compose](https://developer.android.com/jetpack/compose) (Material3)
 * **架构模式**: MVVM (Model-View-ViewModel)
 * **数据持久化**: SharedPreferences
-* **字体**: Google Sans Code（随 APK 打包，不依赖系统字体）
+* **字体**: Google Sans Code（子集化后随 APK 打包，约 60 KB；中文按字符回退到系统字体）
 * **后台任务**:
     * `AlarmManager` (`setAlarmClock`，锁屏 / Doze 下仍能准时唤醒)
     * `BroadcastReceiver`
