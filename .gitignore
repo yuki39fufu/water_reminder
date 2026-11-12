@@ -18,3 +18,5 @@ local.properties
 keystore.properties
 *.jks
 *.keystore
+
+# Kotlin 编译器临时文件.n.kotlin/
