@@ -62,7 +62,9 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -296,6 +298,7 @@ internal const val KEY_POM_END_AT = "pomodoro_end_at"
 internal const val KEY_POM_PHASE = "pomodoro_phase"
 internal const val KEY_POM_FIRED_AT = "pomodoro_fired_at"
 internal const val KEY_POM_REMAINING = "pomodoro_remaining"
+internal const val KEY_POM_COMPLETED = "pomodoro_completed"
 internal const val EXTRA_OPEN_SCREEN = "open_screen"
 internal const val ACTION_POMODORO_ALARM = "com.yuichi39soft.waterreminder.POMODORO_ALARM"
 internal const val POMODORO_REQUEST_CODE = 4001
@@ -867,8 +870,8 @@ fun WaterTrackerApp(
 ) {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
-    var showNotificationDialog by remember { mutableStateOf(false) }
-    var showBatteryDialog by remember { mutableStateOf(false) }
+    var showNotificationDialog by rememberSaveable { mutableStateOf(false) }
+    var showBatteryDialog by rememberSaveable { mutableStateOf(false) }
 
     val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         viewModel.notificationsGranted = granted
@@ -939,8 +942,8 @@ fun WaterTrackerApp(
         )
     }
 
-    var sheetScreen by remember { mutableStateOf<AppScreen?>(null) }
-    var showResetDialog by remember { mutableStateOf(false) }
+    var sheetScreen by rememberSaveable { mutableStateOf<AppScreen?>(null) }
+    var showResetDialog by rememberSaveable { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
 
@@ -1162,8 +1165,8 @@ fun WaterScreen(viewModel: WaterTrackerViewModel, onReset: () -> Unit) {
 
 @Composable
 fun TrapezoidCup(cupCapacity: Int, onDrinkConfirmed: (Int) -> Unit) {
-    var waterLevel by remember { mutableFloatStateOf(0f) }
-    var currentVolume by remember { mutableIntStateOf(0) }
+    var waterLevel by rememberSaveable { mutableFloatStateOf(0f) }
+    var currentVolume by rememberSaveable { mutableIntStateOf(0) }
     // pointerInput(Unit) 的手势闭包只会创建一次，必须用 State 读最新值，
     // 否则在设置里改了杯子容量后，拖动仍按旧容量换算，永远对不上
     val capacityState = rememberUpdatedState(cupCapacity)
@@ -1173,8 +1176,24 @@ fun TrapezoidCup(cupCapacity: Int, onDrinkConfirmed: (Int) -> Unit) {
     val containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     Box(
         modifier = Modifier.size(220.dp, 340.dp).pointerInput(Unit) {
-            detectVerticalDragGestures(onDragEnd = { if (currentVolume > 0) { confirmState.value(currentVolume); waterLevel = 0f; currentVolume = 0 } }) { change, _ ->
-                change.consume(); val newLevel = (1f - (change.position.y / size.height)).coerceIn(0f, 1f); waterLevel = newLevel; currentVolume = (newLevel * capacityState.value).roundToInt()
+            detectVerticalDragGestures(
+                onDragEnd = {
+                    if (currentVolume > 0) {
+                        confirmState.value(currentVolume)
+                    }
+                    waterLevel = 0f
+                    currentVolume = 0
+                },
+                onDragCancel = {
+                    // 手势被系统/父容器打断时不要留下半满的假象
+                    waterLevel = 0f
+                    currentVolume = 0
+                }
+            ) { change, _ ->
+                change.consume()
+                val newLevel = (1f - (change.position.y / size.height)).coerceIn(0f, 1f)
+                waterLevel = newLevel
+                currentVolume = (newLevel * capacityState.value).roundToInt()
             }
         }, contentAlignment = Alignment.BottomCenter
     ) {
@@ -1190,7 +1209,7 @@ fun TrapezoidCup(cupCapacity: Int, onDrinkConfirmed: (Int) -> Unit) {
 
 @Composable
 fun EditNumberDialog(title: String, initialValue: Int, onConfirm: (Int) -> Unit, onDismiss: () -> Unit) {
-    var text by remember { mutableStateOf(initialValue.toString()) }
+    var text by rememberSaveable { mutableStateOf(initialValue.toString()) }
     val context = LocalContext.current
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1227,9 +1246,9 @@ fun EditPercentageDialog(
     onDismiss: () -> Unit
 ) {
     // 滑条的值 (Float)
-    var sliderPosition by remember { mutableFloatStateOf(initialValue.toFloat()) }
+    var sliderPosition by rememberSaveable { mutableFloatStateOf(initialValue.toFloat()) }
     // 输入框的值 (String)
-    var textValue by remember { mutableStateOf(initialValue.toString()) }
+    var textValue by rememberSaveable { mutableStateOf(initialValue.toString()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,

@@ -34,6 +34,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,6 +82,9 @@ class PomodoroViewModel(context: Context) {
         private set
     var remainingMillis by mutableLongStateOf(0L)
         private set
+    /** 跑完全部轮次后置真，UI 用它显示"已完成"，避免和全新状态混在一起 */
+    var completed by mutableStateOf(prefs.getBoolean(KEY_POM_COMPLETED, false))
+        private set
 
     /** 每完成一个阶段自增；UI 用它触发响铃 */
     var completionSignal by mutableIntStateOf(0)
@@ -102,6 +106,7 @@ class PomodoroViewModel(context: Context) {
 
     /** 打开应用时把状态从本地恢复，并对已经过点的阶段做追平 */
     private fun restore() {
+        completed = prefs.getBoolean(KEY_POM_COMPLETED, false)
         val savedRunning = prefs.getBoolean(KEY_POM_RUNNING, false)
         val savedEnd = prefs.getLong(KEY_POM_END_AT, 0L)
         if (savedRunning && savedEnd > 0L) {
@@ -126,6 +131,7 @@ class PomodoroViewModel(context: Context) {
     /** 闹钟接收器可能已经推进过状态，这里把内存状态同步过来 */
     private fun syncFromPrefs() {
         running = prefs.getBoolean(KEY_POM_RUNNING, false)
+        completed = prefs.getBoolean(KEY_POM_COMPLETED, false)
         phase = loadPhase()
         currentRound = prefs.getInt(KEY_POM_ROUND, 1)
         endAt = prefs.getLong(KEY_POM_END_AT, 0L)
@@ -141,6 +147,7 @@ class PomodoroViewModel(context: Context) {
         if (phase == PomodoroPhase.FOCUS) {
             if (currentRound >= rounds) {
                 running = false
+                completed = true
                 phase = PomodoroPhase.FOCUS
                 currentRound = 1
                 endAt = 0L
@@ -165,6 +172,7 @@ class PomodoroViewModel(context: Context) {
             .putString(KEY_POM_PHASE, phase.name)
             .putInt(KEY_POM_ROUND, currentRound)
             .putLong(KEY_POM_REMAINING, remainingMillis)
+            .putBoolean(KEY_POM_COMPLETED, completed)
             .apply()
     }
 
@@ -216,6 +224,7 @@ class PomodoroViewModel(context: Context) {
     }
 
     fun start() {
+        completed = false
         if (remainingMillis <= 0L) remainingMillis = phaseMs()
         endAt = System.currentTimeMillis() + remainingMillis
         running = true
@@ -232,6 +241,7 @@ class PomodoroViewModel(context: Context) {
 
     fun reset() {
         running = false
+        completed = false
         phase = PomodoroPhase.FOCUS
         currentRound = 1
         remainingMillis = focusMs()
@@ -260,16 +270,27 @@ class PomodoroViewModel(context: Context) {
             remainingMillis = endAt - now
             return null
         }
-        val finished = phase
-        val endedAt = endAt
+        // 休眠/后台很久时一次性快进到当前阶段，只为最后结束的那个阶段提醒一次
+        var lastFinished: PomodoroPhase? = null
+        var lastEndedAt = 0L
+        var guard = 0
+        while (running && endAt > 0L && endAt <= now && guard++ < 64) {
+            lastEndedAt = endAt
+            lastFinished = phase
+            advanceFrom(endAt)
+        }
+        if (guard >= 64 && running && endAt <= now) {
+            // 追平次数超限（异常数据）：直接停下，避免 00:00 还在"运行"
+            running = false
+            remainingMillis = phaseMs()
+        }
         completionSignal++
-        advanceFrom(endedAt)
         remainingMillis = if (running) (endAt - now).coerceAtLeast(0L) else phaseMs()
         persist()
-        // 标记这个结束点已经处理过，避免同一时刻的闹钟再弹一次
-        prefs.edit().putLong(KEY_POM_FIRED_AT, endedAt).apply()
+        // 标记最后这个结束点，避免同一时刻的闹钟再弹一次
+        if (lastEndedAt > 0L) prefs.edit().putLong(KEY_POM_FIRED_AT, lastEndedAt).apply()
         if (running) scheduleAlarm() else cancelAlarm()
-        return finished
+        return lastFinished
     }
 
     /** 当前这一轮已经过去的比例（专注 + 休息合起来算） */
@@ -371,6 +392,7 @@ internal fun advancePomodoroPrefs(
     if (phase == PomodoroPhase.FOCUS) {
         if (round >= rounds) {
             edit.putBoolean(KEY_POM_RUNNING, false)
+                .putBoolean(KEY_POM_COMPLETED, true)
                 .putString(KEY_POM_PHASE, PomodoroPhase.FOCUS.name)
                 .putInt(KEY_POM_ROUND, 1)
                 .putLong(KEY_POM_END_AT, 0L)
@@ -397,9 +419,9 @@ private fun formatDuration(millis: Long): String {
 @Composable
 fun PomodoroScreen(pomodoro: PomodoroViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    var showFocusDialog by remember { mutableStateOf(false) }
-    var showBreakDialog by remember { mutableStateOf(false) }
-    var showRoundDialog by remember { mutableStateOf(false) }
+    var showFocusDialog by rememberSaveable { mutableStateOf(false) }
+    var showBreakDialog by rememberSaveable { mutableStateOf(false) }
+    var showRoundDialog by rememberSaveable { mutableStateOf(false) }
 
     if (showFocusDialog) EditNumberDialog(
         title = "专注时长 (分钟)",
@@ -460,6 +482,7 @@ fun PomodoroScreen(pomodoro: PomodoroViewModel, modifier: Modifier = Modifier) {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = when {
+                        pomodoro.completed -> "已完成"
                         !pomodoro.running && pomodoro.remainingMillis <= 0L -> "已结束"
                         pomodoro.phase == PomodoroPhase.FOCUS -> "专注中"
                         else -> "休息中"
@@ -754,9 +777,9 @@ fun notifyPhaseFinished(context: Context, finished: PomodoroPhase) {
 /** 番茄钟设置 */
 @Composable
 fun PomodoroSettingsContent(pomodoro: PomodoroViewModel) {
-    var showFocusDialog by remember { mutableStateOf(false) }
-    var showBreakDialog by remember { mutableStateOf(false) }
-    var showRoundDialog by remember { mutableStateOf(false) }
+    var showFocusDialog by rememberSaveable { mutableStateOf(false) }
+    var showBreakDialog by rememberSaveable { mutableStateOf(false) }
+    var showRoundDialog by rememberSaveable { mutableStateOf(false) }
 
     if (showFocusDialog) EditNumberDialog(
         title = "专注时长 (分钟)",

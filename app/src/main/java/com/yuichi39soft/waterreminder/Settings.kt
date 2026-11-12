@@ -41,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -211,12 +212,12 @@ fun WaterSettingsContent(viewModel: WaterTrackerViewModel) {
 
     LaunchedEffect(Unit) { viewModel.refreshPermissionState(context) }
 
-    var showGoalDialog by remember { mutableStateOf(false) }
-    var showCapacityDialog by remember { mutableStateOf(false) }
-    var showWeightDialog by remember { mutableStateOf(false) }
-    var showTimePicker by remember { mutableStateOf(false) }
-    var showCheckTimePicker by remember { mutableStateOf(false) }
-    var showPercentageDialog by remember { mutableStateOf(false) }
+    var showGoalDialog by rememberSaveable { mutableStateOf(false) }
+    var showCapacityDialog by rememberSaveable { mutableStateOf(false) }
+    var showWeightDialog by rememberSaveable { mutableStateOf(false) }
+    var showTimePicker by rememberSaveable { mutableStateOf(false) }
+    var showCheckTimePicker by rememberSaveable { mutableStateOf(false) }
+    var showPercentageDialog by rememberSaveable { mutableStateOf(false) }
 
     if (showGoalDialog) EditNumberDialog(
         title = "设定每日目标 (mL)",
