@@ -28,17 +28,14 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.FastOutLinearInEasing
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.unit.Dp
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -182,48 +179,57 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        ensureNotificationChannels(this)
+    }
+}
 
-            // 通道一旦创建，声音/振动/锁屏可见性就无法再修改，所以换新 ID 重建
-            notificationManager.deleteNotificationChannel("water_channel_id")
-            notificationManager.deleteNotificationChannel("water_silent_channel_id")
+/**
+ * 创建通知通道。
+ * 闹钟接收器也要调：应用升级后进程被杀、闹钟先于「打开应用」触发时，
+ * 新通道如果还没建好，notify() 会被系统静默丢弃（只能听到响铃、看不到通知）。
+ */
+internal fun ensureNotificationChannels(context: Context) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            val channel = NotificationChannel(CHANNEL_REMINDER, "喝水提醒", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "提醒您按时喝水"
-                enableVibration(true)
-                vibrationPattern = longArrayOf(0, 300, 200, 300)
-                enableLights(true)
-                setShowBadge(true)
-                // 默认在锁屏上完整显示；IMPORTANCE_HIGH 同时保证横幅弹出
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-                setSound(
-                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-            }
-            notificationManager.createNotificationChannel(channel)
+        // 通道一旦创建，声音/振动/锁屏可见性就无法再修改，所以换新 ID 重建
+        notificationManager.deleteNotificationChannel("water_channel_id")
+        notificationManager.deleteNotificationChannel("water_silent_channel_id")
 
-            val silentChannel = NotificationChannel(CHANNEL_STATUS, "状态更新", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "设置成功提示"
-            }
-            notificationManager.createNotificationChannel(silentChannel)
-
-            // 旧通道（带声音）删掉，换成静音的：
-            // 否则「通道声音 + playPhaseChime 手动播放」会让每个阶段响两遍。
-            notificationManager.deleteNotificationChannel("pomodoro_v1")
-
-            val pomodoroChannel = NotificationChannel(CHANNEL_POMODORO, "番茄钟", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "专注 / 休息阶段结束提醒（提示音由应用内开关控制）"
-                enableVibration(true)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-                setSound(null, null)
-            }
-            notificationManager.createNotificationChannel(pomodoroChannel)
+        val channel = NotificationChannel(CHANNEL_REMINDER, "喝水提醒", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "提醒您按时喝水"
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 300, 200, 300)
+            enableLights(true)
+            setShowBadge(true)
+            // 默认在锁屏上完整显示；IMPORTANCE_HIGH 同时保证横幅弹出
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            setSound(
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
         }
+        notificationManager.createNotificationChannel(channel)
+
+        val silentChannel = NotificationChannel(CHANNEL_STATUS, "状态更新", NotificationManager.IMPORTANCE_LOW).apply {
+            description = "设置成功提示"
+        }
+        notificationManager.createNotificationChannel(silentChannel)
+
+        // 旧通道（带声音）删掉，换成静音的：
+        // 否则「通道声音 + playPhaseChime 手动播放」会让每个阶段响两遍。
+        notificationManager.deleteNotificationChannel("pomodoro_v1")
+
+        val pomodoroChannel = NotificationChannel(CHANNEL_POMODORO, "番茄钟", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "专注 / 休息阶段结束提醒（提示音由应用内开关控制）"
+            enableVibration(true)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            setSound(null, null)
+        }
+        notificationManager.createNotificationChannel(pomodoroChannel)
     }
 }
 
@@ -542,6 +548,7 @@ class WaterNotificationReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        ensureNotificationChannels(context)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         // 跨天重置：应用没被打开过时也要做，否则昨天的"达标"会静默掉今天所有提醒
         val today = java.time.LocalDate.now().toString()
@@ -706,6 +713,8 @@ class WaterTrackerViewModel {
             totalIntake = 0
             return true
         }
+        // 日期相同也要以本地存储为准：后台接收器可能在应用还处于前台时做过跨天清零
+        totalIntake = p.getInt("total_intake", 0)
         return false
     }
 

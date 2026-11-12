@@ -91,10 +91,6 @@ class PomodoroViewModel(context: Context) {
     var completed by mutableStateOf(prefs.getBoolean(KEY_POM_COMPLETED, false))
         private set
 
-    /** 每完成一个阶段自增；UI 用它触发响铃 */
-    var completionSignal by mutableIntStateOf(0)
-        private set
-
     /** 每次点复原自增；UI 用它区分"复原"和正常走动 */
     var resetSignal by mutableIntStateOf(0)
         private set
@@ -318,7 +314,6 @@ class PomodoroViewModel(context: Context) {
             running = false
             remainingMillis = phaseMs()
         }
-        completionSignal++
         remainingMillis = if (running) (endAt - now).coerceAtLeast(0L) else phaseMs()
         persist()
         // 标记最后这个结束点，避免同一时刻的闹钟再弹一次
@@ -379,6 +374,8 @@ internal fun cancelPomodoroAlarm(context: Context) {
 /** 阶段结束的闹钟：只负责响铃/通知，阶段推进由应用内的状态机负责 */
 class PomodoroAlarmReceiver : android.content.BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        // 升级后闹钟可能先于应用启动触发，先把通道建好，否则通知会被系统丢掉
+        ensureNotificationChannels(context)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val endAt = prefs.getLong(KEY_POM_END_AT, 0L)
         if (endAt <= 0L) return
@@ -400,7 +397,13 @@ class PomodoroAlarmReceiver : android.content.BroadcastReceiver() {
         val now = System.currentTimeMillis()
         var nextEnd = endAt
         var steps = 0
+        // 快进时可能跨过多个阶段：文案要指向"最后结束"的那个，而不是最先的
+        var notifyPhase = endedPhase
+        var notifyRound = endedRound
         while (prefs.getBoolean(KEY_POM_RUNNING, false) && nextEnd > 0L && nextEnd <= now && steps++ < 64) {
+            val cur = prefs.getString(KEY_POM_PHASE, "FOCUS")
+            notifyPhase = if (cur == PomodoroPhase.BREAK.name) PomodoroPhase.BREAK else PomodoroPhase.FOCUS
+            notifyRound = prefs.getInt(KEY_POM_ROUND, 1)
             advancePomodoroPrefs(prefs, nextEnd)
             nextEnd = prefs.getLong(KEY_POM_END_AT, 0L)
         }
@@ -410,7 +413,7 @@ class PomodoroAlarmReceiver : android.content.BroadcastReceiver() {
         if (prefs.getBoolean(KEY_POM_RING, true)) {
             playPhaseChime(context)
         }
-        notifyPhaseFinished(context, endedPhase, endedRound, endedRounds, allDone)
+        notifyPhaseFinished(context, notifyPhase, notifyRound, endedRounds, allDone)
 
         if (stillRunning) {
             schedulePomodoroAlarm(context, prefs.getLong(KEY_POM_END_AT, 0L))
