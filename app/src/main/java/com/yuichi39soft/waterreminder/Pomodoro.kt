@@ -338,7 +338,6 @@ class PomodoroViewModel(context: Context) {
 /** 重新排番茄钟的阶段结束闹钟（供 ViewModel 与开机广播复用） */
 internal fun schedulePomodoroAlarm(context: Context, endAt: Long) {
     if (endAt <= 0L) return
-    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager ?: return
     val intent = Intent(context, PomodoroAlarmReceiver::class.java).apply {
         action = ACTION_POMODORO_ALARM
     }
@@ -348,13 +347,9 @@ internal fun schedulePomodoroAlarm(context: Context, endAt: Long) {
         intent,
         android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
     )
-    runCatching {
-        if (canScheduleExactAlarms(context)) {
-            alarmManager.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, endAt, pendingIntent)
-        } else {
-            alarmManager.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, endAt, pendingIntent)
-        }
-    }
+    // 和饮水提醒用同一套调度：优先 setAlarmClock（进程被杀/Doze 下也能准点送达），
+    // 否则应用被清掉后闹钟会被系统延后几十秒，这段时间里用户收不到通知。
+    AlarmScheduler.setAlarm(context, endAt, pendingIntent)
 }
 
 internal fun cancelPomodoroAlarm(context: Context) {

@@ -502,7 +502,7 @@ object AlarmScheduler {
         setAlarm(context, System.currentTimeMillis() + minutes * 60_000L, pendingIntent)
     }
 
-    private fun setAlarm(context: Context, triggerAtMillis: Long, pendingIntent: PendingIntent) {
+    internal fun setAlarm(context: Context, triggerAtMillis: Long, pendingIntent: PendingIntent) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
 
         fun scheduleWithAlarmClock() {
