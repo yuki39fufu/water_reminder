@@ -162,8 +162,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // 从系统设置页返回时同步权限状态
-        if (::viewModel.isInitialized) viewModel.refreshPermissionState(this)
+        if (::viewModel.isInitialized) {
+            // 从系统设置页返回时同步权限状态
+            viewModel.refreshPermissionState(this)
+            // 后台期间通知接收器可能做过跨天重置，回到前台重新读一次本地数据
+            viewModel.loadSettings(this)
+        }
+        if (::pomodoro.isInitialized) pomodoro.refreshFromStorage()
     }
 
     private fun createNotificationChannel() {

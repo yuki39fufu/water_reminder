@@ -128,6 +128,11 @@ class PomodoroViewModel(context: Context) {
         }
     }
 
+    /** 回到前台时把内存状态和 prefs 对齐（接收器可能推进过阶段） */
+    fun refreshFromStorage() {
+        syncFromPrefs()
+    }
+
     /** 闹钟接收器可能已经推进过状态，这里把内存状态同步过来 */
     private fun syncFromPrefs() {
         running = prefs.getBoolean(KEY_POM_RUNNING, false)
