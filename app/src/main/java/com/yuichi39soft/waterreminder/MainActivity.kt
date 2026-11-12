@@ -685,17 +685,26 @@ class WaterTrackerViewModel {
         exactAlarmsAllowed = canScheduleExactAlarms(context)
     }
 
-    fun loadSettings(context: Context) {
+    /**
+     * 跨天检查：prefs 与内存一起归零。
+     * 所有会写饮水数据的入口（加载/加水/重置）都要先调它，
+     * 否则零点后加水会把昨天的量一起写回去，或者被后台的跨天重置覆盖掉。
+     */
+    private fun ensureToday(context: Context): Boolean {
         val p = prefs(context)
         val today = LocalDate.now().toString()
-
         if (p.getString("last_date", "") != today) {
+            p.edit().putInt("total_intake", 0).putString("last_date", today).apply()
             totalIntake = 0
-            saveIntake(context, 0)
-            p.edit().putString("last_date", today).apply()
-        } else {
-            totalIntake = p.getInt("total_intake", 0)
+            return true
         }
+        return false
+    }
+
+    fun loadSettings(context: Context) {
+        val p = prefs(context)
+        ensureToday(context)
+        totalIntake = p.getInt("total_intake", 0)
 
         dailyGoal = p.getInt("daily_goal", 2000)
         cupCapacity = p.getInt("cup_capacity", 300)
@@ -720,7 +729,8 @@ class WaterTrackerViewModel {
 
         // 提醒时间从本地恢复；老版本没存过就回落到默认值
         val savedReminders = p.getString(KEY_REMINDERS, null)
-        val restored = if (savedReminders.isNullOrBlank()) {
+        // null 才是"从未配置"；存了空串表示用户主动删光了，不能再回落到默认值
+        val restored = if (savedReminders == null) {
             DEFAULT_REMINDERS
         } else {
             savedReminders.split(",").map { it.trim() }.filter { it.isNotEmpty() }
@@ -763,6 +773,8 @@ class WaterTrackerViewModel {
     }
 
     fun addWater(context: Context, amount: Int) {
+        // 零点后第一次加水时先把昨天的量清掉，别把昨天的数带进今天
+        ensureToday(context)
         val wasReached = totalIntake >= dailyGoal
         totalIntake += amount
         saveIntake(context, totalIntake)
@@ -772,6 +784,7 @@ class WaterTrackerViewModel {
     }
 
     fun resetDaily(context: Context) {
+        ensureToday(context)
         totalIntake = 0
         saveIntake(context, 0)
     }
@@ -998,7 +1011,13 @@ fun WaterTrackerApp(
                 val finished = pomodoro.tick(System.currentTimeMillis())
                 if (finished != null) {
                     if (pomodoro.ringEnabled) playPhaseChime(context)
-                    notifyPhaseFinished(context, finished)
+                    notifyPhaseFinished(
+                        context,
+                        finished,
+                        pomodoro.lastFinishedRound,
+                        pomodoro.lastFinishedRounds,
+                        pomodoro.lastFinishedAllDone
+                    )
                 }
             }
         }
@@ -1096,7 +1115,10 @@ fun WaterTrackerApp(
                 sheetState = sheetState,
                 dragHandle = null
             ) {
-                SettingsSheet(sheetScreen!!, viewModel, pomodoro)
+                val openedScreen = sheetScreen
+                if (openedScreen != null) {
+                    SettingsSheet(openedScreen, viewModel, pomodoro)
+                }
             }
         }
     }
@@ -1170,8 +1192,8 @@ fun WaterScreen(viewModel: WaterTrackerViewModel, onReset: () -> Unit) {
 
 @Composable
 fun TrapezoidCup(cupCapacity: Int, onDrinkConfirmed: (Int) -> Unit) {
-    var waterLevel by rememberSaveable { mutableFloatStateOf(0f) }
-    var currentVolume by rememberSaveable { mutableIntStateOf(0) }
+    var waterLevel by remember { mutableFloatStateOf(0f) }
+    var currentVolume by remember { mutableIntStateOf(0) }
     // pointerInput(Unit) 的手势闭包只会创建一次，必须用 State 读最新值，
     // 否则在设置里改了杯子容量后，拖动仍按旧容量换算，永远对不上
     val capacityState = rememberUpdatedState(cupCapacity)
@@ -1355,7 +1377,7 @@ class BootReceiver : BroadcastReceiver() {
 
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val saved = prefs.getString(KEY_REMINDERS, null)
-        val times = if (saved.isNullOrBlank()) {
+        val times = if (saved == null) {
             DEFAULT_REMINDERS
         } else {
             saved.split(",").map { it.trim() }.filter { it.isNotEmpty() }

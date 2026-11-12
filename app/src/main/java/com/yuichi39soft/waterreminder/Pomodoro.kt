@@ -90,6 +90,14 @@ class PomodoroViewModel(context: Context) {
     var completionSignal by mutableIntStateOf(0)
         private set
 
+    /** 最后结束的那个阶段属于第几轮 / 共几轮 / 是否跑完全部（通知文案用） */
+    var lastFinishedRound by mutableIntStateOf(1)
+        private set
+    var lastFinishedRounds by mutableIntStateOf(4)
+        private set
+    var lastFinishedAllDone by mutableStateOf(false)
+        private set
+
     private var endAt = 0L
 
     init {
@@ -203,6 +211,7 @@ class PomodoroViewModel(context: Context) {
 
     /** 改了当前阶段时长：倒计时按新时长重开，避免和环形进度对不上 */
     private fun retimeCurrentPhase() {
+        syncFromPrefs()
         remainingMillis = phaseMs()
         if (running) {
             endAt = System.currentTimeMillis() + remainingMillis
@@ -215,8 +224,9 @@ class PomodoroViewModel(context: Context) {
 
     fun updateRounds(value: Int) {
         rounds = value.coerceIn(1, 12)
-        prefs.edit().putInt(KEY_POM_ROUNDS, rounds).apply()
         if (currentRound > rounds) currentRound = rounds
+        prefs.edit().putInt(KEY_POM_ROUNDS, rounds).apply()
+        persist()
     }
 
     fun updateRingEnabled(enabled: Boolean) {
@@ -229,6 +239,9 @@ class PomodoroViewModel(context: Context) {
     }
 
     fun start() {
+        // 闹钟接收器可能刚推进过阶段，先对齐再启动
+        syncFromPrefs()
+        if (running) return
         completed = false
         if (remainingMillis <= 0L) remainingMillis = phaseMs()
         endAt = System.currentTimeMillis() + remainingMillis
@@ -238,6 +251,9 @@ class PomodoroViewModel(context: Context) {
     }
 
     fun pause() {
+        // 同上：别把接收器刚推进的阶段用旧 endAt 覆盖回去
+        syncFromPrefs()
+        if (!running) return
         remainingMillis = (endAt - System.currentTimeMillis()).coerceAtLeast(0L)
         running = false
         persist()
@@ -282,8 +298,11 @@ class PomodoroViewModel(context: Context) {
         while (running && endAt > 0L && endAt <= now && guard++ < 64) {
             lastEndedAt = endAt
             lastFinished = phase
+            lastFinishedRound = currentRound
             advanceFrom(endAt)
         }
+        lastFinishedRounds = rounds
+        lastFinishedAllDone = completed && !running
         if (guard >= 64 && running && endAt <= now) {
             // 追平次数超限（异常数据）：直接停下，避免 00:00 还在"运行"
             running = false
@@ -362,15 +381,28 @@ class PomodoroAlarmReceiver : android.content.BroadcastReceiver() {
 
         val phaseText = prefs.getString(KEY_POM_PHASE, "FOCUS")
         val endedPhase = if (phaseText == PomodoroPhase.BREAK.name) PomodoroPhase.BREAK else PomodoroPhase.FOCUS
+        val endedRound = prefs.getInt(KEY_POM_ROUND, 1)
+        val endedRounds = prefs.getInt(KEY_POM_ROUNDS, 4)
+
+        // 进程可能已经被杀：自己推进状态并排下一阶段。
+        // 闹钟被 Doze / ROM 省电延迟时可能已经跳过好几个阶段，
+        // 这里一次快进到未来，只对最先到点的那个阶段提醒一次。
+        val now = System.currentTimeMillis()
+        var nextEnd = endAt
+        var steps = 0
+        while (prefs.getBoolean(KEY_POM_RUNNING, false) && nextEnd > 0L && nextEnd <= now && steps++ < 64) {
+            advancePomodoroPrefs(prefs, nextEnd)
+            nextEnd = prefs.getLong(KEY_POM_END_AT, 0L)
+        }
+        val stillRunning = prefs.getBoolean(KEY_POM_RUNNING, false)
+        val allDone = !stillRunning && prefs.getBoolean(KEY_POM_COMPLETED, false)
 
         if (prefs.getBoolean(KEY_POM_RING, true)) {
             playPhaseChime(context)
         }
-        notifyPhaseFinished(context, endedPhase)
+        notifyPhaseFinished(context, endedPhase, endedRound, endedRounds, allDone)
 
-        // 进程可能已经被杀：由接收器自己推进状态并排下一阶段，否则只会提醒第一次
-        advancePomodoroPrefs(prefs, endAt)
-        if (prefs.getBoolean(KEY_POM_RUNNING, false)) {
+        if (stillRunning) {
             schedulePomodoroAlarm(context, prefs.getLong(KEY_POM_END_AT, 0L))
         }
     }
@@ -742,15 +774,21 @@ fun playPhaseChime(context: Context) {
 }
 
 /** 阶段结束通知：点击进入应用 */
-fun notifyPhaseFinished(context: Context, finished: PomodoroPhase) {
+fun notifyPhaseFinished(
+    context: Context,
+    finished: PomodoroPhase,
+    finishedRound: Int = -1,
+    finishedRounds: Int = -1,
+    allDone: Boolean = false
+) {
     if (!hasNotificationPermission(context)) return
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    val round = prefs.getInt(KEY_POM_ROUND, 1)
-    val rounds = prefs.getInt(KEY_POM_ROUNDS, 4)
-    val text = if (finished == PomodoroPhase.FOCUS) {
-        "专注结束，休息一下（第 $round / $rounds 轮）"
-    } else {
-        "休息结束，继续专注（第 $round / $rounds 轮）"
+    val round = if (finishedRound > 0) finishedRound else prefs.getInt(KEY_POM_ROUND, 1)
+    val rounds = if (finishedRounds > 0) finishedRounds else prefs.getInt(KEY_POM_ROUNDS, 4)
+    val text = when {
+        allDone -> "全部轮次完成，休息一下吧 🎉"
+        finished == PomodoroPhase.FOCUS -> "专注结束，休息一下（第 $round / $rounds 轮）"
+        else -> "休息结束，继续专注（第 $round / $rounds 轮）"
     }
 
     val openIntent = Intent(context, MainActivity::class.java).apply {

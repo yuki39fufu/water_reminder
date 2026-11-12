@@ -36,6 +36,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,11 +64,11 @@ import kotlin.math.sin
 @Composable
 fun WaterTimePickerDialog(onDismiss: () -> Unit, onConfirm: (Int, Int) -> Unit) {
     val now = Calendar.getInstance()
-    var hour by remember { mutableIntStateOf(now.get(Calendar.HOUR_OF_DAY)) }
-    var minute by remember { mutableIntStateOf(now.get(Calendar.MINUTE)) }
-    var selectingHour by remember { mutableStateOf(true) }
-    var hourText by remember { mutableStateOf(String.format("%02d", hour)) }
-    var minuteText by remember { mutableStateOf(String.format("%02d", minute)) }
+    var hour by rememberSaveable { mutableIntStateOf(now.get(Calendar.HOUR_OF_DAY)) }
+    var minute by rememberSaveable { mutableIntStateOf(now.get(Calendar.MINUTE)) }
+    var selectingHour by rememberSaveable { mutableStateOf(true) }
+    var hourText by rememberSaveable { mutableStateOf(String.format("%02d", hour)) }
+    var minuteText by rememberSaveable { mutableStateOf(String.format("%02d", minute)) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
