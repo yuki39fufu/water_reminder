@@ -27,6 +27,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -1188,47 +1190,104 @@ fun WaterScreen(viewModel: WaterTrackerViewModel, onReset: () -> Unit) {
     }
 }
 
+/** 水杯手势的三个状态：空闲 / 拖动中 / 松手落水动画 */
+private enum class CupGesture { IDLE, DRAG, DROP }
+
 @Composable
 fun TrapezoidCup(cupCapacity: Int, onDrinkConfirmed: (Int) -> Unit) {
-    var waterLevel by remember { mutableFloatStateOf(0f) }
+    // 水位统一由 Animatable 驱动：
+    // - 按下：从当前高度（可能是 0，也可能是上一次落水动画中途）弹性涨到手指位置
+    // - 拖动：临界阻尼弹簧持续追手，滞后约一两帧，肉眼基本无感，但看起来像水
+    // - 抬起：先微微上涌，再加速落回杯底
+    var mode by remember { mutableStateOf(CupGesture.IDLE) }
+    var targetLevel by remember { mutableFloatStateOf(0f) }
+    var dropFromLevel by remember { mutableFloatStateOf(0f) }
     var currentVolume by remember { mutableIntStateOf(0) }
+    val level = remember { Animatable(0f) }
+
     // pointerInput(Unit) 的手势闭包只会创建一次，必须用 State 读最新值，
     // 否则在设置里改了杯子容量后，拖动仍按旧容量换算，永远对不上
     val capacityState = rememberUpdatedState(cupCapacity)
     val confirmState = rememberUpdatedState(onDrinkConfirmed)
+
     val waterColor = Color(0xFF9AFCFF)
     val outlineColor = MaterialTheme.colorScheme.outline
     val containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+
+    LaunchedEffect(mode, targetLevel, dropFromLevel) {
+        when (mode) {
+            CupGesture.DRAG -> level.animateTo(
+                targetValue = targetLevel,
+                animationSpec = spring(dampingRatio = 1f, stiffness = 1400f)
+            )
+            CupGesture.DROP -> {
+                // 先上涌一点（惯性带起来的水），再加速落底
+                val peak = (dropFromLevel + 0.045f).coerceIn(0f, 1f)
+                level.animateTo(peak, tween(durationMillis = 90, easing = FastOutSlowInEasing))
+                level.animateTo(0f, tween(durationMillis = 360, easing = FastOutLinearInEasing))
+                currentVolume = 0
+                targetLevel = 0f
+                mode = CupGesture.IDLE
+            }
+            CupGesture.IDLE -> level.animateTo(0f, tween(durationMillis = 120))
+        }
+    }
+
+    // 松手后 "+N" 淡出并上浮，而不是直接消失
+    val badgeAlpha by animateFloatAsState(
+        targetValue = if (mode == CupGesture.DRAG) 1f else 0f,
+        animationSpec = tween(durationMillis = 280),
+        label = "cup-badge"
+    )
+
     Box(
         modifier = Modifier.size(220.dp, 340.dp).pointerInput(Unit) {
             detectVerticalDragGestures(
+                onDragStart = { offset ->
+                    // 按下即进入拖动：水面从当前高度弹到手指位置（中途打断落水动画也不会跳变）
+                    val startLevel = (1f - (offset.y / size.height)).coerceIn(0f, 1f)
+                    targetLevel = startLevel
+                    currentVolume = (startLevel * capacityState.value).roundToInt()
+                    mode = CupGesture.DRAG
+                },
                 onDragEnd = {
                     if (currentVolume > 0) {
                         confirmState.value(currentVolume)
                     }
-                    waterLevel = 0f
-                    currentVolume = 0
+                    dropFromLevel = level.value
+                    mode = CupGesture.DROP
                 },
                 onDragCancel = {
-                    // 手势被系统/父容器打断时不要留下半满的假象
-                    waterLevel = 0f
-                    currentVolume = 0
+                    // 手势被系统/父容器打断：让水自然落回去，不要停在半满
+                    dropFromLevel = level.value
+                    mode = CupGesture.DROP
                 }
             ) { change, _ ->
                 change.consume()
                 val newLevel = (1f - (change.position.y / size.height)).coerceIn(0f, 1f)
-                waterLevel = newLevel
+                targetLevel = newLevel
                 currentVolume = (newLevel * capacityState.value).roundToInt()
             }
         }, contentAlignment = Alignment.BottomCenter
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val h = size.height; val w = size.width; val waterH = h * waterLevel
+            val h = size.height; val w = size.width; val waterH = h * level.value
             val cupPath = Path().apply { moveTo(0f, 0f); lineTo(w, 0f); lineTo(w * 0.85f, h); lineTo(w * 0.15f, h); close() }
             clipPath(cupPath) { drawRect(color = containerColor); drawRect(color = waterColor, topLeft = Offset(0f, h - waterH), size = Size(w, waterH)) }
             drawPath(cupPath, outlineColor, style = Stroke(width = 4.dp.toPx()))
         }
-        if (currentVolume > 0) Text("+$currentVolume", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.padding(bottom = 100.dp))
+        if (currentVolume > 0) {
+            Text(
+                text = "+$currentVolume",
+                fontSize = 40.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier
+                    .padding(bottom = 100.dp)
+                    .alpha(badgeAlpha)
+                    .offset(y = ((1f - badgeAlpha) * -14f).dp)
+            )
+        }
     }
 }
 
