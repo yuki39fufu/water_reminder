@@ -31,6 +31,14 @@ import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Dp
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -1164,23 +1172,43 @@ fun WaterScreen(viewModel: WaterTrackerViewModel, onReset: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text("今日饮水", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "${viewModel.totalIntake}",
-                fontSize = 80.sp, fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.primary
+
+            // 机械计数器式数字：只有变化的位会滚动
+            RollingNumber(
+                value = viewModel.totalIntake,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontSize = 80.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
             )
-            if (viewModel.totalIntake >= viewModel.dailyGoal) {
-                Text(
-                    "已达标",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = Color(0xFF4CAF50),
-                    fontWeight = FontWeight.Bold
-                )
-            } else {
-                Text(
-                    "/ ${viewModel.dailyGoal} mL",
-                    style = MaterialTheme.typography.titleLarge
-                )
+
+            // 未达标 ↔ 已达标：往上滑一小段 + 轻微淡入淡出，高度固定避免整页跳动
+            val reachedGoal = viewModel.totalIntake >= viewModel.dailyGoal
+            AnimatedContent(
+                targetState = reachedGoal,
+                transitionSpec = {
+                    (slideInVertically(tween(240)) { it / 3 } + fadeIn(tween(240))) togetherWith
+                        (slideOutVertically(tween(240)) { -it / 3 } + fadeOut(tween(240)))
+                },
+                label = "goal-subtitle",
+                modifier = Modifier.height(44.dp)
+            ) { reached ->
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (reached) {
+                        Text(
+                            "已达标",
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = Color(0xFF4CAF50),
+                            fontWeight = FontWeight.Bold
+                        )
+                    } else {
+                        Text(
+                            "/ ${viewModel.dailyGoal} mL",
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                    }
+                }
             }
             Spacer(modifier = Modifier.weight(1f))
             TrapezoidCup(viewModel.cupCapacity) { viewModel.addWater(context, it) }
@@ -1192,6 +1220,127 @@ fun WaterScreen(viewModel: WaterTrackerViewModel, onReset: () -> Unit) {
 
 /** 水杯手势的三个状态：空闲 / 拖动中 / 松手落水动画 */
 private enum class CupGesture { IDLE, DRAG, DROP }
+
+/**
+ * 机械计数器式数字。
+ *
+ * 每一位是一个高度恰好等于一行的裁剪窗口，窗口里上下叠着「旧数字 / 新数字」，
+ * 滚动时整条向上平移一个字高：旧数字往上被裁掉多少，新数字就从下面露出多少，
+ * 没有淡入淡出，所以任何时刻窗口里都只有一个清晰的数字。
+ *
+ * 用 Canvas + drawText 直接绘制，避免 Compose 文本布局在裁剪容器里的坑。
+ */
+@Composable
+fun RollingNumber(
+    value: Int,
+    style: TextStyle,
+    modifier: Modifier = Modifier
+) {
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+
+    // 数字等宽，但按 0-9 实测取最宽的一个作为槽宽，避免个别字宽不同导致抖动
+    val slotWidthPx = remember(style) {
+        ('0'..'9').maxOf { measurer.measure(it.toString(), style).size.width }
+    }
+    val slotHeightPx = remember(style) { measurer.measure("0", style).size.height }
+    val rollEasing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+
+    val text = value.toString()
+
+    // lastTarget：当前"正在滚向"的值；fromText：这次滚动是从哪个值开始的
+    var lastTarget by remember { mutableStateOf(text) }
+    var fromText by remember { mutableStateOf(text) }
+    val progress = remember { Animatable(1f) }
+
+    LaunchedEffect(text) {
+        if (text == lastTarget) return@LaunchedEffect
+        // 上一段还没滚完就来了新值：先让它落定，
+        // 否则会从"上上次"的值重新滚（看起来像往回跳一下）
+        if (progress.value < 1f) progress.snapTo(1f)
+        fromText = lastTarget
+        lastTarget = text
+        progress.snapTo(0f)
+        progress.animateTo(1f, tween(durationMillis = 340, easing = rollEasing))
+        // 动画结束后把滚动起点收回，画布宽度才会跟着位数变化
+        fromText = text
+    }
+
+    // 逐位算出「旧」「新」。0 特殊处理：
+    //   0 -> 任意数：整串从下方滚入（旧的一侧视为空）
+    //   任意数 -> 0：整串向上滚出，0 从下方滚入
+    val slotCount = maxOf(fromText.length, text.length)
+    val oldIsZero = fromText == "0"
+    val newIsZero = text == "0"
+    val fromChars = List(slotCount) { i ->
+        val posFromRight = slotCount - 1 - i
+        if (oldIsZero) null
+        else fromText.getOrNull(fromText.length - 1 - posFromRight)
+    }
+    val toChars = List(slotCount) { i ->
+        val posFromRight = slotCount - 1 - i
+        when {
+            newIsZero -> if (posFromRight == 0) '0' else null
+            else -> text.getOrNull(text.length - 1 - posFromRight)
+        }
+    }
+    val fromLayouts = fromChars.map { c -> c?.let { measurer.measure(it.toString(), style) } }
+    val toLayouts = toChars.map { c -> c?.let { measurer.measure(it.toString(), style) } }
+
+    // 画布宽度按"最多需要的槽位数"（滚动中的旧数字也占位），
+    // 位数变化时整行横向补偿一下：先假装停在旧位置，再用非线性曲线回到新位置
+    var prevSlots by remember { mutableIntStateOf(slotCount) }
+    val shift = remember { Animatable(0f) }
+    LaunchedEffect(slotCount) {
+        if (slotCount != prevSlots) {
+            shift.snapTo((prevSlots - slotCount) * slotWidthPx / 2f)
+            prevSlots = slotCount
+            shift.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 280, easing = rollEasing)
+            )
+        }
+    }
+
+    val widthDp = with(density) { (slotCount.coerceAtLeast(1) * slotWidthPx).toDp() }
+    val heightDp = with(density) { slotHeightPx.toDp() }
+
+    Canvas(
+        modifier = modifier
+            .width(widthDp)
+            .height(heightDp)
+            .offset { IntOffset(shift.value.roundToInt(), 0) }
+            .clipToBounds()
+    ) {
+        val p = progress.value
+        val h = size.height
+        // 显式裁剪：超出窗口的"旧数字"必须被切掉，否则会露到标题那一行
+        clipRect(left = 0f, top = 0f, right = size.width, bottom = size.height) {
+        for (i in 0 until slotCount) {
+            val x = i * slotWidthPx
+            val fromLayout = fromLayouts[i]
+            val toLayout = toLayouts[i]
+            val fromChar = fromChars[i]
+            val toChar = toChars[i]
+            if (fromChar == toChar) {
+                // 这一位没变：完全不参与动画
+                toLayout?.let {
+                    drawText(it, topLeft = Offset(x + (slotWidthPx - it.size.width) / 2f, 0f))
+                }
+            } else {
+                if (p < 1f) {
+                    fromLayout?.let {
+                        drawText(it, topLeft = Offset(x + (slotWidthPx - it.size.width) / 2f, -p * h))
+                    }
+                }
+                toLayout?.let {
+                    drawText(it, topLeft = Offset(x + (slotWidthPx - it.size.width) / 2f, h - p * h))
+                }
+            }
+        }
+        }
+    }
+}
 
 @Composable
 fun TrapezoidCup(cupCapacity: Int, onDrinkConfirmed: (Int) -> Unit) {
