@@ -25,8 +25,8 @@ android {
         applicationId = "com.yuichi39soft.waterreminder"
         minSdk = 33
         targetSdk = 36
-        versionCode = 7
-        versionName = "1.3.1"
+        versionCode = 8
+        versionName = "1.3.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -44,7 +44,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8：删掉未被引用的类/方法并重命名，是发布包体积的主要来源
+            isMinifyEnabled = true
+            isShrinkResources = true
             if (keystorePropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }

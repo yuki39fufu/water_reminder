@@ -3,7 +3,6 @@ package com.yuichi39soft.waterreminder.ui.theme
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import com.yuichi39soft.waterreminder.R
 
@@ -22,8 +21,7 @@ val GoogleSansCode = FontFamily(
     Font(R.font.google_sans_code, FontWeight.SemiBold),
     Font(R.font.google_sans_code, FontWeight.Bold),
     Font(R.font.google_sans_code, FontWeight.ExtraBold),
-    Font(R.font.google_sans_code, FontWeight.Black),
-    Font(R.font.google_sans_code_italic, FontWeight.Normal, FontStyle.Italic)
+    Font(R.font.google_sans_code, FontWeight.Black)
 )
 
 private val Base = Typography()
