@@ -118,7 +118,21 @@ class PomodoroViewModel(context: Context) {
         } else {
             running = false
             endAt = 0L
-            remainingMillis = phaseMs()
+            // 暂停状态也要恢复进度，否则旋转屏幕/进程回收后会跳回整段时长
+            remainingMillis = prefs.getLong(KEY_POM_REMAINING, phaseMs()).coerceIn(0L, phaseMs())
+        }
+    }
+
+    /** 闹钟接收器可能已经推进过状态，这里把内存状态同步过来 */
+    private fun syncFromPrefs() {
+        running = prefs.getBoolean(KEY_POM_RUNNING, false)
+        phase = loadPhase()
+        currentRound = prefs.getInt(KEY_POM_ROUND, 1)
+        endAt = prefs.getLong(KEY_POM_END_AT, 0L)
+        remainingMillis = if (running && endAt > 0L) {
+            (endAt - System.currentTimeMillis()).coerceAtLeast(0L)
+        } else {
+            prefs.getLong(KEY_POM_REMAINING, phaseMs()).coerceIn(0L, phaseMs())
         }
     }
 
@@ -150,6 +164,7 @@ class PomodoroViewModel(context: Context) {
             .putLong(KEY_POM_END_AT, endAt)
             .putString(KEY_POM_PHASE, phase.name)
             .putInt(KEY_POM_ROUND, currentRound)
+            .putLong(KEY_POM_REMAINING, remainingMillis)
             .apply()
     }
 
@@ -164,13 +179,25 @@ class PomodoroViewModel(context: Context) {
     fun updateFocusMinutes(value: Int) {
         focusMinutes = value.coerceIn(1, 180)
         prefs.edit().putInt(KEY_POM_FOCUS, focusMinutes).apply()
-        if (!running && phase == PomodoroPhase.FOCUS) remainingMillis = focusMs()
+        if (phase == PomodoroPhase.FOCUS) retimeCurrentPhase()
     }
 
     fun updateBreakMinutes(value: Int) {
         breakMinutes = value.coerceIn(1, 60)
         prefs.edit().putInt(KEY_POM_BREAK, breakMinutes).apply()
-        if (!running && phase == PomodoroPhase.BREAK) remainingMillis = breakMs()
+        if (phase == PomodoroPhase.BREAK) retimeCurrentPhase()
+    }
+
+    /** 改了当前阶段时长：倒计时按新时长重开，避免和环形进度对不上 */
+    private fun retimeCurrentPhase() {
+        remainingMillis = phaseMs()
+        if (running) {
+            endAt = System.currentTimeMillis() + remainingMillis
+            persist()
+            scheduleAlarm()
+        } else {
+            persist()
+        }
     }
 
     fun updateRounds(value: Int) {
@@ -222,6 +249,13 @@ class PomodoroViewModel(context: Context) {
     /** 返回刚刚结束的阶段（若有），由调用方负责响铃 */
     fun tick(now: Long): PomodoroPhase? {
         if (!running) return null
+        // 闹钟接收器可能已经推进过状态（它在 endAt 那一刻先响），这里同步而不是再推进一次
+        val prefEnd = prefs.getLong(KEY_POM_END_AT, 0L)
+        val prefRunning = prefs.getBoolean(KEY_POM_RUNNING, false)
+        if (prefRunning != running || prefEnd != endAt) {
+            syncFromPrefs()
+            return null
+        }
         if (now < endAt) {
             remainingMillis = endAt - now
             return null
@@ -300,15 +334,57 @@ class PomodoroAlarmReceiver : android.content.BroadcastReceiver() {
         if (fired == endAt) return
         prefs.edit().putLong(KEY_POM_FIRED_AT, endAt).apply()
 
+        val phaseText = prefs.getString(KEY_POM_PHASE, "FOCUS")
+        val endedPhase = if (phaseText == PomodoroPhase.BREAK.name) PomodoroPhase.BREAK else PomodoroPhase.FOCUS
+
         if (prefs.getBoolean(KEY_POM_RING, true)) {
             playPhaseChime(context)
         }
-        val phaseText = prefs.getString(KEY_POM_PHASE, "FOCUS")
-        notifyPhaseFinished(
-            context,
-            if (phaseText == PomodoroPhase.BREAK.name) PomodoroPhase.BREAK else PomodoroPhase.FOCUS
-        )
+        notifyPhaseFinished(context, endedPhase)
+
+        // 进程可能已经被杀：由接收器自己推进状态并排下一阶段，否则只会提醒第一次
+        advancePomodoroPrefs(prefs, endAt)
+        if (prefs.getBoolean(KEY_POM_RUNNING, false)) {
+            schedulePomodoroAlarm(context, prefs.getLong(KEY_POM_END_AT, 0L))
+        }
     }
+}
+
+/**
+ * 阶段结束后推进 SharedPreferences 中的番茄钟状态。
+ * 供闹钟接收器使用（应用进程不在时也要能继续往下走）。
+ */
+internal fun advancePomodoroPrefs(
+    prefs: android.content.SharedPreferences,
+    fromEndAt: Long
+) {
+    val phase = if (prefs.getString(KEY_POM_PHASE, "FOCUS") == PomodoroPhase.BREAK.name) {
+        PomodoroPhase.BREAK
+    } else {
+        PomodoroPhase.FOCUS
+    }
+    val round = prefs.getInt(KEY_POM_ROUND, 1)
+    val rounds = prefs.getInt(KEY_POM_ROUNDS, 4)
+    val focusMs = prefs.getInt(KEY_POM_FOCUS, 25) * 60_000L
+    val breakMs = prefs.getInt(KEY_POM_BREAK, 5) * 60_000L
+    val edit = prefs.edit()
+    if (phase == PomodoroPhase.FOCUS) {
+        if (round >= rounds) {
+            edit.putBoolean(KEY_POM_RUNNING, false)
+                .putString(KEY_POM_PHASE, PomodoroPhase.FOCUS.name)
+                .putInt(KEY_POM_ROUND, 1)
+                .putLong(KEY_POM_END_AT, 0L)
+                .putLong(KEY_POM_REMAINING, focusMs)
+        } else {
+            edit.putString(KEY_POM_PHASE, PomodoroPhase.BREAK.name)
+                .putLong(KEY_POM_END_AT, fromEndAt + breakMs)
+        }
+    } else {
+        edit.putString(KEY_POM_PHASE, PomodoroPhase.FOCUS.name)
+            .putInt(KEY_POM_ROUND, (round + 1).coerceAtMost(rounds))
+            .putLong(KEY_POM_END_AT, fromEndAt + focusMs)
+    }
+    edit.apply()
 }
 
 private fun formatDuration(millis: Long): String {
@@ -344,17 +420,6 @@ fun PomodoroScreen(pomodoro: PomodoroViewModel, modifier: Modifier = Modifier) {
         onDismiss = { showRoundDialog = false }
     )
 
-    // 计时驱动 + 阶段结束响铃
-    LaunchedEffect(pomodoro.running) {
-        while (pomodoro.running) {
-            delay(200)
-            val finished = pomodoro.tick(System.currentTimeMillis())
-            if (finished != null && pomodoro.ringEnabled) {
-                playPhaseChime(context)
-            }
-            if (finished != null) notifyPhaseFinished(context, finished)
-        }
-    }
 
     Column(
         modifier = modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 20.dp),

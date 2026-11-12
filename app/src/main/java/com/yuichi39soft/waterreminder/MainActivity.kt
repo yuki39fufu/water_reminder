@@ -295,6 +295,7 @@ internal const val KEY_POM_RUNNING = "pomodoro_running"
 internal const val KEY_POM_END_AT = "pomodoro_end_at"
 internal const val KEY_POM_PHASE = "pomodoro_phase"
 internal const val KEY_POM_FIRED_AT = "pomodoro_fired_at"
+internal const val KEY_POM_REMAINING = "pomodoro_remaining"
 internal const val EXTRA_OPEN_SCREEN = "open_screen"
 internal const val ACTION_POMODORO_ALARM = "com.yuichi39soft.waterreminder.POMODORO_ALARM"
 internal const val POMODORO_REQUEST_CODE = 4001
@@ -526,6 +527,11 @@ class WaterNotificationReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        // 跨天重置：应用没被打开过时也要做，否则昨天的"达标"会静默掉今天所有提醒
+        val today = java.time.LocalDate.now().toString()
+        if (prefs.getString("last_date", "") != today) {
+            prefs.edit().putInt("total_intake", 0).putString("last_date", today).apply()
+        }
         val currentIntake = prefs.getInt("total_intake", 0)
         val dailyGoal = prefs.getInt("daily_goal", 2000)
         val checkPercentage = prefs.getInt("check_percentage", 50)
@@ -763,8 +769,8 @@ class WaterTrackerViewModel {
     }
 
     fun updateDailyGoal(context: Context, goal: Int) {
-        dailyGoal = goal
-        context.getSharedPreferences("water_prefs", Context.MODE_PRIVATE).edit().putInt("daily_goal", goal).apply()
+        dailyGoal = goal.coerceIn(100, 10000)
+        context.getSharedPreferences("water_prefs", Context.MODE_PRIVATE).edit().putInt("daily_goal", dailyGoal).apply()
     }
 
     /** 切换手动/自动；切到自动时立刻按公式重算一次 */
@@ -782,8 +788,8 @@ class WaterTrackerViewModel {
     }
 
     fun updateCupCapacity(context: Context, capacity: Int) {
-        cupCapacity = capacity
-        context.getSharedPreferences("water_prefs", Context.MODE_PRIVATE).edit().putInt("cup_capacity", capacity).apply()
+        cupCapacity = capacity.coerceIn(50, 2000)
+        context.getSharedPreferences("water_prefs", Context.MODE_PRIVATE).edit().putInt("cup_capacity", cupCapacity).apply()
     }
 
     fun addReminder(context: Context, time: String) {
@@ -974,6 +980,18 @@ fun WaterTrackerApp(
             when (APP_SCREENS[page % APP_SCREENS.size]) {
                 AppScreen.WATER -> WaterScreen(viewModel, onReset = { showResetDialog = true })
                 AppScreen.POMODORO -> PomodoroScreen(pomodoro)
+            }
+        }
+
+        // 番茄钟计时驱动放在这一层（不随页面销毁），划到饮水页也会继续走
+        LaunchedEffect(pomodoro.running) {
+            while (pomodoro.running) {
+                delay(200)
+                val finished = pomodoro.tick(System.currentTimeMillis())
+                if (finished != null) {
+                    if (pomodoro.ringEnabled) playPhaseChime(context)
+                    notifyPhaseFinished(context, finished)
+                }
             }
         }
 
@@ -1173,7 +1191,32 @@ fun TrapezoidCup(cupCapacity: Int, onDrinkConfirmed: (Int) -> Unit) {
 @Composable
 fun EditNumberDialog(title: String, initialValue: Int, onConfirm: (Int) -> Unit, onDismiss: () -> Unit) {
     var text by remember { mutableStateOf(initialValue.toString()) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { OutlinedTextField(value = text, onValueChange = { if (it.all { c -> c.isDigit() }) text = it }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, shape = RoundedCornerShape(percent = 50), label = { Text("输入数值") }) }, confirmButton = { TextButton(onClick = { val num = text.toIntOrNull(); if (num != null && num > 0) onConfirm(num) }) { Text("确定") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { if (it.all { c -> c.isDigit() } && it.length <= 6) text = it },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                shape = RoundedCornerShape(percent = 50),
+                label = { Text("输入数值") }
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val num = text.toIntOrNull()
+                if (num != null && num > 0) {
+                    onConfirm(num)
+                } else {
+                    Toast.makeText(context, "请输入大于 0 的数字", Toast.LENGTH_SHORT).show()
+                }
+            }) { Text("确定") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    )
 }
 
 // --- 【新增】百分比编辑弹窗（含滑条）---
