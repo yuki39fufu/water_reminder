@@ -1248,33 +1248,40 @@ fun RollingNumber(
 
     val text = value.toString()
 
-    // lastTarget：当前"正在滚向"的值；fromText：这次滚动是从哪个值开始的
-    var lastTarget by remember { mutableStateOf(text) }
-    var fromText by remember { mutableStateOf(text) }
-    val progress = remember { Animatable(1f) }
+    // 关键：起点状态全部在"这一帧"里用 remember(key) 建好。
+    // 如果用 LaunchedEffect 去 snapTo(0)，第一帧会先按"动画结束态"画一次，
+    // 看起来就是数字先跳到终点、再跳回来重新滚。
+    val prevHolder = remember { arrayOf(text) }
+    val fromText = remember(text) {
+        val prev = prevHolder[0]
+        prevHolder[0] = text
+        prev
+    }
+    val changed = fromText != text
+    val progress = remember(text) {
+        Animatable(if (changed) 0f else 1f)
+    }
+    // 滚动是否已经播完；决定画布要不要收缩回真实位数
+    var settled by remember(text) { mutableStateOf(!changed) }
 
     LaunchedEffect(text) {
-        if (text == lastTarget) return@LaunchedEffect
-        // 上一段还没滚完就来了新值：先让它落定，
-        // 否则会从"上上次"的值重新滚（看起来像往回跳一下）
-        if (progress.value < 1f) progress.snapTo(1f)
-        fromText = lastTarget
-        lastTarget = text
-        progress.snapTo(0f)
-        progress.animateTo(1f, tween(durationMillis = 340, easing = rollEasing))
-        // 动画结束后把滚动起点收回，画布宽度才会跟着位数变化
-        fromText = text
+        if (!settled) {
+            progress.animateTo(1f, tween(durationMillis = 340, easing = rollEasing))
+            settled = true
+        }
     }
 
-    // 逐位算出「旧」「新」。0 特殊处理：
+    // 0 特殊处理：
     //   0 -> 任意数：整串从下方滚入（旧的一侧视为空）
     //   任意数 -> 0：整串向上滚出，0 从下方滚入
-    val slotCount = maxOf(fromText.length, text.length)
     val oldIsZero = fromText == "0"
     val newIsZero = text == "0"
+    // 滚动期间旧数字也要占位；播完之后才收缩到真实位数
+    val slotCount = if (settled) text.length else maxOf(fromText.length, text.length)
+
     val fromChars = List(slotCount) { i ->
         val posFromRight = slotCount - 1 - i
-        if (oldIsZero) null
+        if (oldIsZero || settled) null
         else fromText.getOrNull(fromText.length - 1 - posFromRight)
     }
     val toChars = List(slotCount) { i ->
@@ -1287,14 +1294,16 @@ fun RollingNumber(
     val fromLayouts = fromChars.map { c -> c?.let { measurer.measure(it.toString(), style) } }
     val toLayouts = toChars.map { c -> c?.let { measurer.measure(it.toString(), style) } }
 
-    // 画布宽度按"最多需要的槽位数"（滚动中的旧数字也占位），
-    // 位数变化时整行横向补偿一下：先假装停在旧位置，再用非线性曲线回到新位置
-    var prevSlots by remember { mutableIntStateOf(slotCount) }
-    val shift = remember { Animatable(0f) }
+    // 画布宽度变化（位数增减）时，横向补偿量也在同一帧里算好，再用曲线回到 0
+    val slotHolder = remember { intArrayOf(slotCount) }
+    val startShift = remember(slotCount) {
+        val start = (slotHolder[0] - slotCount) * slotWidthPx / 2f
+        slotHolder[0] = slotCount
+        start
+    }
+    val shift = remember(slotCount) { Animatable(startShift) }
     LaunchedEffect(slotCount) {
-        if (slotCount != prevSlots) {
-            shift.snapTo((prevSlots - slotCount) * slotWidthPx / 2f)
-            prevSlots = slotCount
+        if (shift.value != 0f) {
             shift.animateTo(
                 targetValue = 0f,
                 animationSpec = tween(durationMillis = 280, easing = rollEasing)
@@ -1310,34 +1319,33 @@ fun RollingNumber(
             .width(widthDp)
             .height(heightDp)
             .offset { IntOffset(shift.value.roundToInt(), 0) }
-            .clipToBounds()
     ) {
         val p = progress.value
         val h = size.height
         // 显式裁剪：超出窗口的"旧数字"必须被切掉，否则会露到标题那一行
         clipRect(left = 0f, top = 0f, right = size.width, bottom = size.height) {
-        for (i in 0 until slotCount) {
-            val x = i * slotWidthPx
-            val fromLayout = fromLayouts[i]
-            val toLayout = toLayouts[i]
-            val fromChar = fromChars[i]
-            val toChar = toChars[i]
-            if (fromChar == toChar) {
-                // 这一位没变：完全不参与动画
-                toLayout?.let {
-                    drawText(it, topLeft = Offset(x + (slotWidthPx - it.size.width) / 2f, 0f))
-                }
-            } else {
-                if (p < 1f) {
-                    fromLayout?.let {
-                        drawText(it, topLeft = Offset(x + (slotWidthPx - it.size.width) / 2f, -p * h))
+            for (i in 0 until slotCount) {
+                val x = i * slotWidthPx
+                val fromLayout = fromLayouts[i]
+                val toLayout = toLayouts[i]
+                val fromChar = fromChars[i]
+                val toChar = toChars[i]
+                if (fromChar == toChar) {
+                    // 这一位没变：完全不参与动画
+                    toLayout?.let {
+                        drawText(it, topLeft = Offset(x + (slotWidthPx - it.size.width) / 2f, 0f))
+                    }
+                } else {
+                    if (p < 1f) {
+                        fromLayout?.let {
+                            drawText(it, topLeft = Offset(x + (slotWidthPx - it.size.width) / 2f, -p * h))
+                        }
+                    }
+                    toLayout?.let {
+                        drawText(it, topLeft = Offset(x + (slotWidthPx - it.size.width) / 2f, h - p * h))
                     }
                 }
-                toLayout?.let {
-                    drawText(it, topLeft = Offset(x + (slotWidthPx - it.size.width) / 2f, h - p * h))
-                }
             }
-        }
         }
     }
 }
