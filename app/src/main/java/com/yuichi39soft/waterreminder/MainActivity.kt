@@ -148,7 +148,11 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    WaterTrackerApp(viewModel, pomodoro, requestedScreen.value) { requestedScreen.value = null }
+                    WaterTrackerApp(viewModel, pomodoro, requestedScreen.value) {
+                        requestedScreen.value = null
+                        // 消费掉 extra，避免 Activity 重建（如旋转）时又跳一次
+                        intent?.removeExtra(EXTRA_OPEN_SCREEN)
+                    }
                 }
             }
         }
@@ -944,6 +948,7 @@ fun WaterTrackerApp(
     LaunchedEffect(requestedScreen) {
         val target = requestedScreen ?: return@LaunchedEffect
         val count = APP_SCREENS.size
+        sheetScreen = null
         if (APP_SCREENS[pagerState.currentPage % count] != target) {
             for (step in 1..count) {
                 val candidate = pagerState.currentPage + step
@@ -1290,5 +1295,12 @@ class BootReceiver : BroadcastReceiver() {
         }
         times.forEach { AlarmScheduler.scheduleReminder(context, it) }
         AlarmScheduler.scheduleDailyCheck(context, prefs.getString("check_time", "20:00") ?: "20:00")
+
+        // 番茄钟正在计时的话，重启后把阶段结束的闹钟补回去
+        val pomodoroRunning = prefs.getBoolean(KEY_POM_RUNNING, false)
+        val pomodoroEndAt = prefs.getLong(KEY_POM_END_AT, 0L)
+        if (pomodoroRunning && pomodoroEndAt > System.currentTimeMillis()) {
+            schedulePomodoroAlarm(context, pomodoroEndAt)
+        }
     }
 }

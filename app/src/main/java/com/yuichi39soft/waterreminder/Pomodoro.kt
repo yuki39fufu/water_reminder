@@ -154,38 +154,11 @@ class PomodoroViewModel(context: Context) {
     }
 
     private fun scheduleAlarm() {
-        if (!running || endAt <= 0L) return
-        val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager ?: return
-        val intent = Intent(appContext, PomodoroAlarmReceiver::class.java).apply {
-            action = ACTION_POMODORO_ALARM
-        }
-        val pendingIntent = android.app.PendingIntent.getBroadcast(
-            appContext,
-            POMODORO_REQUEST_CODE,
-            intent,
-            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        runCatching {
-            if (canScheduleExactAlarms(appContext)) {
-                alarmManager.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, endAt, pendingIntent)
-            } else {
-                alarmManager.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, endAt, pendingIntent)
-            }
-        }
+        if (running) schedulePomodoroAlarm(appContext, endAt)
     }
 
     private fun cancelAlarm() {
-        val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager ?: return
-        val intent = Intent(appContext, PomodoroAlarmReceiver::class.java).apply {
-            action = ACTION_POMODORO_ALARM
-        }
-        val pendingIntent = android.app.PendingIntent.getBroadcast(
-            appContext,
-            POMODORO_REQUEST_CODE,
-            intent,
-            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_NO_CREATE
-        )
-        if (pendingIntent != null) alarmManager.cancel(pendingIntent)
+        cancelPomodoroAlarm(appContext)
     }
 
     fun updateFocusMinutes(value: Int) {
@@ -276,6 +249,42 @@ class PomodoroViewModel(context: Context) {
         }
         return (elapsed / total).coerceIn(0f, 1f)
     }
+}
+
+/** 重新排番茄钟的阶段结束闹钟（供 ViewModel 与开机广播复用） */
+internal fun schedulePomodoroAlarm(context: Context, endAt: Long) {
+    if (endAt <= 0L) return
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager ?: return
+    val intent = Intent(context, PomodoroAlarmReceiver::class.java).apply {
+        action = ACTION_POMODORO_ALARM
+    }
+    val pendingIntent = android.app.PendingIntent.getBroadcast(
+        context,
+        POMODORO_REQUEST_CODE,
+        intent,
+        android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+    )
+    runCatching {
+        if (canScheduleExactAlarms(context)) {
+            alarmManager.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, endAt, pendingIntent)
+        } else {
+            alarmManager.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, endAt, pendingIntent)
+        }
+    }
+}
+
+internal fun cancelPomodoroAlarm(context: Context) {
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager ?: return
+    val intent = Intent(context, PomodoroAlarmReceiver::class.java).apply {
+        action = ACTION_POMODORO_ALARM
+    }
+    val pendingIntent = android.app.PendingIntent.getBroadcast(
+        context,
+        POMODORO_REQUEST_CODE,
+        intent,
+        android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_NO_CREATE
+    )
+    if (pendingIntent != null) alarmManager.cancel(pendingIntent)
 }
 
 /** 阶段结束的闹钟：只负责响铃/通知，阶段推进由应用内的状态机负责 */
