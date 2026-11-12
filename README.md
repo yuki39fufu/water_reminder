@@ -53,13 +53,13 @@
 * **后台任务**:
     * `AlarmManager` (`setAlarmClock`，锁屏 / Doze 下仍能准时唤醒)
     * `BroadcastReceiver`
-* **动画**: Compose Animation API（`Animatable`、`Canvas` 粒子系统、自绘环形 / 表盘）
+* **动画**: Compose Animation API（`Animatable`、`Canvas` 粒子系统、自绘环形 / 表盘、机械计数器式数字滚动）
 * **兼容性**: Min SDK 33 (Android 13.0) ~ Target SDK 36
 
 ## 📥 安装与构建
 
 ### 直接安装
-请前往 [Releases](../../releases) 页面下载最新版本的 APK 文件（`v1.3.0`）。
+请前往 [Releases](../../releases) 页面下载最新版本的 APK 文件（`v1.3.2`）。
 
 ### 源码构建
 1.  克隆仓库：
