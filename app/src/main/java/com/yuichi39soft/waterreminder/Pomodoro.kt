@@ -1,5 +1,9 @@
 package com.yuichi39soft.waterreminder
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
+
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
@@ -52,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -502,10 +507,27 @@ fun PomodoroScreen(pomodoro: PomodoroViewModel, modifier: Modifier = Modifier) {
         Spacer(Modifier.weight(1f))
 
         Box(modifier = Modifier.size(280.dp), contentAlignment = Alignment.Center) {
+            val targetConsumed = pomodoro.roundConsumedFraction()
+            val consumedAnim = remember { Animatable(targetConsumed) }
+            LaunchedEffect(targetConsumed) {
+                // 正常走时每次只挪一点点（200ms 一跳）：直接跟住，别让环一直滞后；
+                // 点复原 / 阶段切换时跨度很大：走一段非线性（先快后慢）的回退动画。
+                if (abs(targetConsumed - consumedAnim.value) > 0.05f) {
+                    consumedAnim.animateTo(
+                        targetValue = targetConsumed,
+                        animationSpec = tween(
+                            durationMillis = 620,
+                            easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+                        )
+                    )
+                } else {
+                    consumedAnim.snapTo(targetConsumed)
+                }
+            }
             PomodoroRing(
                 focusFractionOfRound = pomodoro.focusMinutes.toFloat() /
                     (pomodoro.focusMinutes + pomodoro.breakMinutes).toFloat(),
-                consumedFraction = pomodoro.roundConsumedFraction(),
+                consumedFraction = consumedAnim.value,
                 ringWidth = 22.dp
             )
             Column(horizontalAlignment = Alignment.CenterHorizontally) {

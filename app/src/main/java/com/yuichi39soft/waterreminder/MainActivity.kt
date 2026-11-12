@@ -202,17 +202,15 @@ class MainActivity : ComponentActivity() {
             }
             notificationManager.createNotificationChannel(silentChannel)
 
+            // 旧通道（带声音）删掉，换成静音的：
+            // 否则「通道声音 + playPhaseChime 手动播放」会让每个阶段响两遍。
+            notificationManager.deleteNotificationChannel("pomodoro_v1")
+
             val pomodoroChannel = NotificationChannel(CHANNEL_POMODORO, "番茄钟", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "专注 / 休息阶段结束提醒"
+                description = "专注 / 休息阶段结束提醒（提示音由应用内开关控制）"
                 enableVibration(true)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-                setSound(
-                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
+                setSound(null, null)
             }
             notificationManager.createNotificationChannel(pomodoroChannel)
         }
@@ -310,7 +308,7 @@ internal const val POMODORO_REQUEST_CODE = 4001
 
 internal const val CHANNEL_REMINDER = "water_reminder_v2"
 internal const val CHANNEL_STATUS = "water_status_v2"
-internal const val CHANNEL_POMODORO = "pomodoro_v1"
+internal const val CHANNEL_POMODORO = "pomodoro_v2"
 
 internal const val DEFAULT_WEIGHT_KG = 65
 internal const val GITHUB_URL = "https://github.com/yuki39fufu/water_reminder"
