@@ -109,6 +109,22 @@ class MainActivity : ComponentActivity() {
     private lateinit var viewModel: WaterTrackerViewModel
     private lateinit var pomodoro: PomodoroViewModel
 
+    /** 点通知进来时要落到哪个页面；消费一次后置空 */
+    private val requestedScreen = mutableStateOf<AppScreen?>(null)
+
+    private fun screenFromIntent(intent: Intent?): AppScreen? =
+        when (intent?.getStringExtra(EXTRA_OPEN_SCREEN)) {
+            "pomodoro" -> AppScreen.POMODORO
+            "water" -> AppScreen.WATER
+            else -> null
+        }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        requestedScreen.value = screenFromIntent(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -118,6 +134,7 @@ class MainActivity : ComponentActivity() {
         createNotificationChannel()
         viewModel = WaterTrackerViewModel()
         pomodoro = PomodoroViewModel(this)
+        requestedScreen.value = screenFromIntent(intent)
 
         setContent {
             val context = LocalContext.current
@@ -131,7 +148,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    WaterTrackerApp(viewModel, pomodoro)
+                    WaterTrackerApp(viewModel, pomodoro, requestedScreen.value) { requestedScreen.value = null }
                 }
             }
         }
@@ -274,6 +291,7 @@ internal const val KEY_POM_RUNNING = "pomodoro_running"
 internal const val KEY_POM_END_AT = "pomodoro_end_at"
 internal const val KEY_POM_PHASE = "pomodoro_phase"
 internal const val KEY_POM_FIRED_AT = "pomodoro_fired_at"
+internal const val EXTRA_OPEN_SCREEN = "open_screen"
 internal const val ACTION_POMODORO_ALARM = "com.yuichi39soft.waterreminder.POMODORO_ALARM"
 internal const val POMODORO_REQUEST_CODE = 4001
 
@@ -564,6 +582,7 @@ class WaterNotificationReceiver : BroadcastReceiver() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             action = Intent.ACTION_MAIN
             addCategory(Intent.CATEGORY_LAUNCHER)
+            putExtra(EXTRA_OPEN_SCREEN, "water")
         }
         return PendingIntent.getActivity(
             context,
@@ -830,7 +849,12 @@ data class Particle(val color: Color, val angle: Double, val speed: Double)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WaterTrackerApp(viewModel: WaterTrackerViewModel, pomodoro: PomodoroViewModel) {
+fun WaterTrackerApp(
+    viewModel: WaterTrackerViewModel,
+    pomodoro: PomodoroViewModel,
+    requestedScreen: AppScreen?,
+    onScreenConsumed: () -> Unit
+) {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
     var showNotificationDialog by remember { mutableStateOf(false) }
@@ -911,8 +935,26 @@ fun WaterTrackerApp(viewModel: WaterTrackerViewModel, pomodoro: PomodoroViewMode
     val scope = rememberCoroutineScope()
 
     // 无限循环的横向分页：页码取模就能 1→2→1→2… 或反向
-    val pagerState = rememberPagerState(initialPage = INITIAL_PAGE) { Int.MAX_VALUE }
+    // 冷启动时如果是通知点进来的，直接落在对应页
+    val startPage = if (requestedScreen == AppScreen.POMODORO) INITIAL_PAGE + 1 else INITIAL_PAGE
+    val pagerState = rememberPagerState(initialPage = startPage) { Int.MAX_VALUE }
     val currentScreen = APP_SCREENS[pagerState.currentPage % APP_SCREENS.size]
+
+    // 应用已经在运行时点通知（onNewIntent），需要滚到目标页
+    LaunchedEffect(requestedScreen) {
+        val target = requestedScreen ?: return@LaunchedEffect
+        val count = APP_SCREENS.size
+        if (APP_SCREENS[pagerState.currentPage % count] != target) {
+            for (step in 1..count) {
+                val candidate = pagerState.currentPage + step
+                if (APP_SCREENS[candidate % count] == target) {
+                    pagerState.animateScrollToPage(candidate)
+                    break
+                }
+            }
+        }
+        onScreenConsumed()
+    }
 
     fun goNext() {
         scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }

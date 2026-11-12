@@ -254,10 +254,13 @@ class PomodoroViewModel(context: Context) {
             return null
         }
         val finished = phase
+        val endedAt = endAt
         completionSignal++
-        advanceFrom(endAt)
+        advanceFrom(endedAt)
         remainingMillis = if (running) (endAt - now).coerceAtLeast(0L) else phaseMs()
         persist()
+        // 标记这个结束点已经处理过，避免同一时刻的闹钟再弹一次
+        prefs.edit().putLong(KEY_POM_FIRED_AT, endedAt).apply()
         if (running) scheduleAlarm() else cancelAlarm()
         return finished
     }
@@ -281,6 +284,8 @@ class PomodoroAlarmReceiver : android.content.BroadcastReceiver() {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val endAt = prefs.getLong(KEY_POM_END_AT, 0L)
         if (endAt <= 0L) return
+        // 应用内已经推进到下一阶段时，endAt 已经被推后，这个"旧闹钟"不该再提醒
+        if (System.currentTimeMillis() + 1500L < endAt) return
         // 同一个结束点只响一次（应用内 tick 与闹钟可能同时到达）
         val fired = prefs.getLong(KEY_POM_FIRED_AT, 0L)
         if (fired == endAt) return
@@ -634,10 +639,29 @@ fun playPhaseChime(context: Context) {
     }
 }
 
-/** 阶段结束通知 */
+/** 阶段结束通知：点击进入应用 */
 fun notifyPhaseFinished(context: Context, finished: PomodoroPhase) {
     if (!hasNotificationPermission(context)) return
-    val text = if (finished == PomodoroPhase.FOCUS) "专注结束，休息一下吧" else "休息结束，继续专注"
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val round = prefs.getInt(KEY_POM_ROUND, 1)
+    val rounds = prefs.getInt(KEY_POM_ROUNDS, 4)
+    val text = if (finished == PomodoroPhase.FOCUS) {
+        "专注结束，休息一下（第 $round / $rounds 轮）"
+    } else {
+        "休息结束，继续专注（第 $round / $rounds 轮）"
+    }
+
+    val openIntent = Intent(context, MainActivity::class.java).apply {
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        putExtra(EXTRA_OPEN_SCREEN, "pomodoro")
+    }
+    val contentIntent = android.app.PendingIntent.getActivity(
+        context,
+        8101,
+        openIntent,
+        android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+    )
+
     val notification = NotificationCompat.Builder(context, CHANNEL_POMODORO)
         .setSmallIcon(android.R.drawable.ic_menu_recent_history)
         .setContentTitle("番茄钟")
@@ -645,6 +669,7 @@ fun notifyPhaseFinished(context: Context, finished: PomodoroPhase) {
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .setCategory(NotificationCompat.CATEGORY_REMINDER)
+        .setContentIntent(contentIntent)
         .setAutoCancel(true)
         .build()
     runCatching {
